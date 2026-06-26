@@ -8,6 +8,7 @@ import os
 from torch.nn import CrossEntropyLoss, MSELoss, BatchNorm1d, Parameter
 import torch.nn.init as init
 from ..builder import build_left, build_right, CLASSIFIERS
+from .candidate_matching import ReverseAttentionCandidateMatcher
 
 import time
 from collections import defaultdict
@@ -21,7 +22,10 @@ class classifier(nn.Module):
                  train_rightinput=None,val_zsl_rightinput=None,val_gzsl_rightinput=None, 
                  uni_lambda=0.7,use_w = False,
                 instanse_uni_loss=True, class_uni_loss = True,
-                use_attention=True,
+                 use_attention=True,
+                 matching_mode='zeroddi',
+                 matching_hidden_dim=256,
+                 matching_dropout=0.1,
                  use_sign_cls = False,
                  attributlabel=None,
                 zsl_labels=None,
@@ -44,6 +48,7 @@ class classifier(nn.Module):
         self.instanse_uni_loss=instanse_uni_loss
         self.class_uni_loss=class_uni_loss
         self.use_attention = use_attention
+        self.matching_mode = matching_mode
         self.use_sign_cls = use_sign_cls
         self.attributlabel = attributlabel
 
@@ -71,6 +76,16 @@ class classifier(nn.Module):
             init.xavier_normal_(self.W_q)
             init.xavier_normal_(self.W_k)
             init.xavier_normal_(self.W_v)
+        if self.matching_mode == 'reverse':
+            self.ReverseMatcher = ReverseAttentionCandidateMatcher(
+                pair_dim=256,
+                evidence_dim=300,
+                event_dim=self.Rightmodel.output_dim,
+                hidden_dim=matching_hidden_dim,
+                dropout=matching_dropout,
+            )
+        elif self.matching_mode != 'zeroddi':
+            raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
         self.loss = nn.CrossEntropyLoss()
       
       
@@ -175,6 +190,16 @@ class classifier(nn.Module):
         
         return logits,loss,a,drug_atten_
 
+    def ReverseLocal(self, left_output, drugemb, semanticemb, emb_ids):
+        labels = torch.as_tensor(emb_ids, dtype=torch.long, device=self.device)
+        outputs = self.ReverseMatcher(
+            pair_repr=left_output,
+            evidence_tokens=drugemb,
+            event_tokens=semanticemb,
+            labels=labels,
+        )
+        return outputs["logits"], outputs["loss"], outputs["attention"], outputs["selected_evidence"]
+
     def forward(self, input):
         """
         input: self.new_current_dataset[index], self.mode,self.zsl_mode,sign,effect,pattern
@@ -198,7 +223,10 @@ class classifier(nn.Module):
         ###############
         
         #print("right_output_all",right_output_all.shape)
-        logits,loss_g,cross_att, proto = self.Local(left_output, sub_structure, right_output_all, emb_ids)
+        if self.matching_mode == 'reverse':
+            logits, loss_g, cross_att, proto = self.ReverseLocal(left_output, sub_structure, right_output_all, emb_ids)
+        else:
+            logits,loss_g,cross_att, proto = self.Local(left_output, sub_structure, right_output_all, emb_ids)
         if input[2][0]=="train" and self.use_sign_cls:
             loss_g = loss_g+sign_loss
             
