@@ -65,6 +65,7 @@ def parse_args():
     #parser.add_argument('--test', type=str, default='no', help='zsl or gzsl or no')
     parser.add_argument('--zsl_para', type=str, default=False)
     parser.add_argument('--gzsl_para', type=str, default=False)
+    parser.add_argument('--seen_para', type=str, default=False)
 
     args = parser.parse_args()
 
@@ -126,7 +127,7 @@ def main():
                                         f'model_best_epoch{cfg.num_epochs}_seen{args.seednumber}.pkl')
     # timestamp
     timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-    if args.zsl_para or args.gzsl_para:
+    if args.zsl_para or args.gzsl_para or args.seen_para:
         log_file = osp.join(cfg.work_dir, f'eval_{timestamp}.log')
     else:
         log_file = osp.join(cfg.work_dir, f'{timestamp}.log')
@@ -140,7 +141,27 @@ def main():
     unify_seed_device(cfg, int(args.seednumber), args.deterministic, cfg.device,args)
     cfg.seednumber = int(args.seednumber)
 
-    if args.zsl_para or args.gzsl_para:  # test
+    if args.seen_para:  # seen-label test
+        train_dataset = build_dataset(cfg.data.train)
+        cfg.model.rightmodel.input_dim = train_dataset.input_dim
+        cfg.model.seen_labels = train_dataset.current_dataset_eventid_uni
+        seen_test_dataset = build_dataset(cfg.data.zsl_test)
+        cfg.model.rightmodel.output_dim = seen_test_dataset.dim
+        cfg.model.zsl_labels = seen_test_dataset.current_dataset_eventid_uni
+        cfg.model.gzsl_labels = seen_test_dataset.current_dataset_eventid_uni
+
+        cfg.model.train_rightinput = train_dataset.rightinput
+        cfg.model.val_zsl_rightinput = seen_test_dataset.rightinput
+        cfg.model.val_gzsl_rightinput = seen_test_dataset.rightinput
+        cfg.model.attributlabel = train_dataset.rightattributelabel
+
+        model = build_classifier(cfg.model)
+        model.to(cfg.device)
+        print(args.seen_para)
+        model.load_state_dict(torch.load(args.seen_para))
+        acc = evaluate(model, seen_test_dataset, logger, cfg, "seen", visualize_acc=True)
+
+    elif args.zsl_para or args.gzsl_para:  # test
 
         train_dataset = build_dataset(cfg.data.train)
         cfg.model.rightmodel.input_dim = train_dataset.input_dim

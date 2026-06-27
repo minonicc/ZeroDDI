@@ -59,6 +59,11 @@ def train_model(model, datasets, cfg):
     gzsl_best_epoch = 0
     best_H = 0
     best_per_acc = 0
+    seen_best_model = 0
+    seen_best_epoch = 0
+    best_seen_acc = 0
+    eval_modes = cfg.get('eval_modes', ['zsl', 'gzsl'])
+    eval_interval = cfg.get('eval_interval', 1)
 
     for epoch in range(cfg.num_epochs):
         batch_step = 0
@@ -77,21 +82,30 @@ def train_model(model, datasets, cfg):
             batch_loss += loss.item()
             batch_step += 1
             
-        if (epoch+1)%1==0:
+        if (epoch + 1) % eval_interval == 0:
 
             logger.info(f"epoch is {epoch} || Train batch_loss is {batch_loss / batch_step} \n")
             history['train_loss'].append(batch_loss / batch_step)
-            per_acc = evaluate(model, datasets[1], logger, cfg, "zsl", "test")  # zsl_val_dataset
-            H = evaluate(model, datasets[2], logger, cfg, "gzsl", "test")  # gzsl_val_dataset
-            if H > best_H:
-                best_H = H
-                gzsl_best_epoch = epoch
-                gzsl_best_model = copy.deepcopy(model.state_dict())
+            if 'zsl' in eval_modes:
+                per_acc = evaluate(model, datasets[1], logger, cfg, "zsl", "test")  # zsl_val_dataset
+                if per_acc > best_per_acc:
+                    best_per_acc = per_acc
+                    zsl_best_epoch = epoch
+                    zsl_best_model = copy.deepcopy(model.state_dict())
 
-            if per_acc > best_per_acc:
-                best_per_acc = per_acc
-                zsl_best_epoch = epoch
-                zsl_best_model = copy.deepcopy(model.state_dict())
+            if 'gzsl' in eval_modes:
+                H = evaluate(model, datasets[2], logger, cfg, "gzsl", "test")  # gzsl_val_dataset
+                if H > best_H:
+                    best_H = H
+                    gzsl_best_epoch = epoch
+                    gzsl_best_model = copy.deepcopy(model.state_dict())
+
+            if 'seen' in eval_modes:
+                seen_acc = evaluate(model, datasets[1], logger, cfg, "seen", "test")
+                if seen_acc > best_seen_acc:
+                    best_seen_acc = seen_acc
+                    seen_best_epoch = epoch
+                    seen_best_model = copy.deepcopy(model.state_dict())
             # print("time",time.time()-t1)
         if (epoch + 1) % 20 == 0:
             #if torch.distributed.get_rank() == 0:
@@ -101,9 +115,12 @@ def train_model(model, datasets, cfg):
                                                 f'zsl_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
             torch.save(gzsl_best_model, osp.join(osp.join(cfg.work_dir, 'model_parameter'),
                                                  f'gzsl_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
+            torch.save(seen_best_model, osp.join(osp.join(cfg.work_dir, 'model_parameter'),
+                                                 f'seen_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
 
     logger.info(f"The gzsl best epoch is {gzsl_best_epoch + 1}")
     logger.info(f"The zsl best epoch is {zsl_best_epoch + 1}")
+    logger.info(f"The seen best epoch is {seen_best_epoch + 1}")
     # save history
 
 
@@ -151,7 +168,7 @@ def evaluate(model, dataset, logger, cfg, zsl, aaa="test", visualize_acc=False):
             instances = np.append(instances, instance.detach().cpu().numpy(), axis=0)
             prototypes = np.append(prototypes, prototype.detach().cpu().numpy(), axis=0)
     eval_loss = eval_loss / nb_eval_steps
-    if zsl == "zsl":
+    if zsl == "zsl" or zsl == "seen":
         Val_Evaluation, per_class_top_1_acc, acc_per_class_list, true_label_count = zsl_accuracy(preds, gt_emb_ids)
 
 

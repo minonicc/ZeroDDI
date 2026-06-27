@@ -1,4 +1,4 @@
-_base_ = './zeroddi.py'
+_base_ = './zeroddi_seen.py'
 
 model = dict(
     matching_mode='reverse',
@@ -8,4 +8,4 @@ model = dict(
     matching_use_evidence_gate=False,
 )
 
-work_dir = './work_dirs/zeroddi_reverse'
+work_dir = './work_dirs/zeroddi_reverse_seen'

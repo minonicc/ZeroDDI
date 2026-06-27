@@ -26,6 +26,8 @@ class classifier(nn.Module):
                  matching_mode='zeroddi',
                  matching_hidden_dim=256,
                  matching_dropout=0.1,
+                 matching_use_null_evidence=True,
+                 matching_use_evidence_gate=False,
                  use_sign_cls = False,
                  attributlabel=None,
                 zsl_labels=None,
@@ -83,6 +85,8 @@ class classifier(nn.Module):
                 event_dim=self.Rightmodel.output_dim,
                 hidden_dim=matching_hidden_dim,
                 dropout=matching_dropout,
+                use_null_evidence=matching_use_null_evidence,
+                use_evidence_gate=matching_use_evidence_gate,
             )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
