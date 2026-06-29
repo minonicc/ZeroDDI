@@ -18,6 +18,14 @@ import pandas as pd
 import seaborn as sns
 import copy
 import sklearn
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    cohen_kappa_score,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 import pickle
 from collections import defaultdict
 from mpl_toolkits.mplot3d import Axes3D
@@ -183,6 +191,8 @@ def evaluate(model, dataset, logger, cfg, zsl, aaa="test", visualize_acc=False):
                 Val_Evaluation["Top2Acc"],
                 Val_Evaluation["Top3Acc"],
                 Val_Evaluation["Top5Acc"]))
+        cls_metrics = classification_metrics(preds, gt_emb_ids)
+        log_classification_metrics(logger, cls_metrics)
         logger.info("************************\n")
 
     
@@ -218,11 +228,65 @@ def evaluate(model, dataset, logger, cfg, zsl, aaa="test", visualize_acc=False):
                 two_classify_seenacc,
                 two_classify_unseenacc,
                 bi_acc))
+        cls_metrics = classification_metrics(preds, gt_emb_ids)
+        log_classification_metrics(logger, cls_metrics)
         logger.info("************************\n")
 
         return H
 
 
+
+
+def classification_metrics(logits, ids):
+    probabilities = softmax(logits, axis=1)
+    preds = np.argmax(logits, axis=1)
+    ids = np.asarray(ids)
+
+    metrics = {
+        "ACC": accuracy_score(ids, preds),
+        "Kappa": cohen_kappa_score(ids, preds),
+        "Macro-F1": f1_score(ids, preds, average="macro", zero_division=0),
+        "Weighted-F1": f1_score(ids, preds, average="weighted", zero_division=0),
+        "Macro-Precision": precision_score(ids, preds, average="macro", zero_division=0),
+        "Macro-Recall": recall_score(ids, preds, average="macro", zero_division=0),
+    }
+
+    class_ids = np.arange(probabilities.shape[1])
+    y_true = (ids[:, None] == class_ids[None, :]).astype(int)
+    present = y_true.sum(axis=0) > 0
+    if present.any():
+        metrics["PR-AUC-macro"] = average_precision_score(
+            y_true[:, present],
+            probabilities[:, present],
+            average="macro",
+        )
+        metrics["PR-AUC-micro"] = average_precision_score(
+            y_true[:, present],
+            probabilities[:, present],
+            average="micro",
+        )
+    else:
+        metrics["PR-AUC-macro"] = float("nan")
+        metrics["PR-AUC-micro"] = float("nan")
+
+    return metrics
+
+
+def log_classification_metrics(logger, metrics):
+    logger.info(
+        "ACC:%f, Kappa:%f, Macro-F1:%f, Weighted-F1:%f, "
+        "Macro-Precision:%f, Macro-Recall:%f, PR-AUC-macro:%f, PR-AUC-micro:%f"
+        % (
+            metrics["ACC"],
+            metrics["Kappa"],
+            metrics["Macro-F1"],
+            metrics["Weighted-F1"],
+            metrics["Macro-Precision"],
+            metrics["Macro-Recall"],
+            metrics["PR-AUC-macro"],
+            metrics["PR-AUC-micro"],
+        )
+    )
 
 
 def zsl_accuracy(logits, ids):

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import json
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
@@ -24,7 +25,9 @@ class AttriTextBioBERTDataset(Dataset):
                  output_dim=None,
                  #input_dim = None,
                  device='cuda:0',
-                 bert_vision="biobert-base-cased-v1.2"
+                 bert_vision="biobert-base-cased-v1.2",
+                 kg_pair_file=None,
+                 kg_max_tokens=128,
                  ):
       
         self.Allfilename = Allfilename
@@ -35,6 +38,9 @@ class AttriTextBioBERTDataset(Dataset):
         self.device = device
         self.output_dim = output_dim
         self.zsl_mode = zsl_mode
+        self.kg_pair_file = kg_pair_file
+        self.kg_max_tokens = kg_max_tokens
+        self.kg_pair_tokens, self.kg_feature_vocab_sizes = self._load_kg_pair_file()
 
         self.bert_vision = bert_vision
         self.mesh_text_biobertemb, self.biobertemb = self._get_all_embeddings()
@@ -44,6 +50,38 @@ class AttriTextBioBERTDataset(Dataset):
         self.rightattributelabel = (self.current_sign_id, self.current_mesh_id, self.current_patt_id)
         self.dim = self.output_dim
         self.input_dim = (self.current_all_biogpt_emb.shape[2], self.current_all_mesh_emb.shape[2])
+
+    def _load_kg_pair_file(self):
+        if self.kg_pair_file is None:
+            return None, None
+        if not os.path.exists(self.kg_pair_file):
+            raise FileNotFoundError(f"KG pair file not found: {self.kg_pair_file}")
+
+        with open(self.kg_pair_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("pairs", {}), data.get("feature_vocab_sizes")
+
+    def _pair_key(self, drug1, drug2):
+        return f"{drug1}||{drug2}"
+
+    def _get_kg_evidence(self, drug1, drug2):
+        tokens = []
+        if self.kg_pair_tokens is not None:
+            tokens = self.kg_pair_tokens.get(self._pair_key(drug1, drug2))
+            if tokens is None:
+                tokens = self.kg_pair_tokens.get(self._pair_key(drug2, drug1), [])
+        tokens = tokens[: self.kg_max_tokens]
+        mask = [True] * len(tokens)
+
+        pad_len = self.kg_max_tokens - len(tokens)
+        if pad_len > 0:
+            tokens = tokens + [[0, 0, 0, 0, 0] for _ in range(pad_len)]
+            mask = mask + [False] * pad_len
+
+        return {
+            "tokens": torch.tensor(tokens, dtype=torch.long),
+            "mask": torch.tensor(mask, dtype=torch.bool),
+        }
 
     def _get_all_embeddings(self):
         # id,drug1,drug2,event_id,MeSH_ID,Sign,Pattern,description,smiles1,smiles2
@@ -192,7 +230,10 @@ class AttriTextBioBERTDataset(Dataset):
         self.new_current_dataset = []
         for item in current_dataset:
             embid = self.eventid2embid[int(item[2])]
-            self.new_current_dataset.append([item[0], item[1], embid])
+            sample = [item[0], item[1], embid]
+            if self.kg_pair_tokens is not None:
+                sample.append(self._get_kg_evidence(item[0], item[1]))
+            self.new_current_dataset.append(sample)
         return current_all_biogpt_emb, current_all_mesh_emb
 
     def __getitem__(self, index):

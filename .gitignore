@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+.DS_Store
 
 # Runtime outputs
 work_dirs/
@@ -9,4 +10,6 @@ data/output/
 data/DrugBank5.1.9/DDI_final2.csv
 data/DrugBank5.1.9/zsl/train.csv
 data/DrugBank5.1.9/gzsl/train.csv
+data/DrugBank5.1.9/kg/
+data/MolecBioNet/
 data/biobert-base-cased-v1.2/

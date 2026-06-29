@@ -96,6 +96,12 @@ def unify_seed_device(cfg, i, det, dev,args):
     cfg.data.test_seen.device = dev
 
 
+def attach_kg_vocab_to_model(cfg, dataset):
+    kg_vocab = getattr(dataset, "kg_feature_vocab_sizes", None)
+    if kg_vocab is not None:
+        cfg.model.matching_kg_feature_vocab_sizes = kg_vocab
+
+
 def main():
     args = parse_args()
     # get config from file
@@ -145,6 +151,7 @@ def main():
 
     if args.seen_para:  # seen-label test
         train_dataset = build_dataset(cfg.data.train)
+        attach_kg_vocab_to_model(cfg, train_dataset)
         cfg.model.rightmodel.input_dim = train_dataset.input_dim
         cfg.model.seen_labels = train_dataset.current_dataset_eventid_uni
         seen_test_dataset = build_dataset(cfg.data.zsl_test)
@@ -166,6 +173,7 @@ def main():
     elif args.zsl_para or args.gzsl_para:  # test
 
         train_dataset = build_dataset(cfg.data.train)
+        attach_kg_vocab_to_model(cfg, train_dataset)
         cfg.model.rightmodel.input_dim = train_dataset.input_dim
         cfg.model.seen_labels = train_dataset.current_dataset_eventid_uni
         zsl_test_dataset = build_dataset(cfg.data.zsl_test)
@@ -199,6 +207,7 @@ def main():
         print("train")
         datasets = []
         train_dataset = build_dataset(cfg.data.train)
+        attach_kg_vocab_to_model(cfg, train_dataset)
         cfg.model.rightmodel.input_dim = train_dataset.input_dim
         cfg.model.rightmodel.output_dim = train_dataset.dim
         cfg.model.seen_labels = train_dataset.current_dataset_eventid_uni

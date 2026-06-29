@@ -48,6 +48,62 @@ def main():
     print("selected_evidence:", tuple(outputs["selected_evidence"].shape))
     print("loss:", round(outputs["loss"].item(), 6))
 
+    kg_tokens = torch.randn(batch_size, 9, evidence_dim)
+    kg_mask = torch.ones(batch_size, 9, dtype=torch.bool)
+    kg_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_kg_evidence=True,
+        kg_evidence_dim=evidence_dim,
+        kg_hidden_dim=hidden_dim,
+    )
+    kg_outputs = kg_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels=labels,
+        kg_evidence_tokens=kg_tokens,
+        kg_evidence_mask=kg_mask,
+    )
+    kg_outputs["loss"].backward()
+
+    fallback_outputs = kg_model(pair_repr, evidence_tokens, event_tokens, labels=labels)
+
+    print("kg reverse attention smoke test ok")
+    print("kg_attention:", tuple(kg_outputs["kg_attention"].shape))
+    print("kg_selected_evidence:", tuple(kg_outputs["kg_selected_evidence"].shape))
+    print("fallback_logits:", tuple(fallback_outputs["logits"].shape))
+
+    kg_feature_tokens = torch.randint(1, 8, (batch_size, 9, 5), dtype=torch.long)
+    kg_feature_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_kg_evidence=True,
+        kg_evidence_dim=evidence_dim,
+        kg_hidden_dim=hidden_dim,
+        kg_feature_vocab_sizes={
+            "entity": 16,
+            "type": 8,
+            "relation": 8,
+            "side": 8,
+            "distance": 8,
+        },
+    )
+    kg_feature_outputs = kg_feature_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels=labels,
+        kg_evidence_tokens=kg_feature_tokens,
+        kg_evidence_mask=kg_mask,
+    )
+    kg_feature_outputs["loss"].backward()
+    print("kg feature token smoke test ok")
+
 
 if __name__ == "__main__":
     main()
