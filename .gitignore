@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+# Runtime outputs
+work_dirs/
+data/output/
+
+# Local downloaded datasets / pretrained checkpoints
+data/DrugBank5.1.9/DDI_final2.csv
+data/DrugBank5.1.9/zsl/train.csv
+data/DrugBank5.1.9/gzsl/train.csv
+data/biobert-base-cased-v1.2/

@@ -28,6 +28,7 @@ class classifier(nn.Module):
                  matching_dropout=0.1,
                  matching_use_null_evidence=True,
                  matching_use_evidence_gate=False,
+                 semantic_aux_lambda=0.0,
                  use_sign_cls = False,
                  attributlabel=None,
                 zsl_labels=None,
@@ -51,6 +52,7 @@ class classifier(nn.Module):
         self.class_uni_loss=class_uni_loss
         self.use_attention = use_attention
         self.matching_mode = matching_mode
+        self.semantic_aux_lambda = semantic_aux_lambda
         self.use_sign_cls = use_sign_cls
         self.attributlabel = attributlabel
 
@@ -151,7 +153,7 @@ class classifier(nn.Module):
     
 
 
-    def Local(self,left_output, drugemb, semanticemb,emb_ids):
+    def Local(self,left_output, drugemb, semanticemb,emb_ids, add_uniformity=True):
         if self.use_attention:
             d_k = drugemb.size(-1)
             Q = torch.matmul(drugemb, self.W_q).expand((semanticemb.shape[0], drugemb.shape[0],
@@ -168,7 +170,7 @@ class classifier(nn.Module):
                 left_output = torch.matmul(left_output,self.W) 
             logits = torch.matmul(left_output.unsqueeze(dim=1),drug_atten_.transpose(1, 2)).squeeze(1)/ self.temperature
             loss = self.loss(logits,torch.tensor(emb_ids, dtype=torch.long).to(self.device))
-            if self.UniformityLoss:
+            if self.UniformityLoss and add_uniformity:
                 loss_uni= self.UniformityLoss_twoemb(left_output,drug_atten_, self.device)
                 loss = loss+self.uni_lambda*loss_uni
         else:
@@ -188,7 +190,7 @@ class classifier(nn.Module):
             logits = torch.matmul(left_output,drug_atten_.transpose(0, 1))/ self.temperature 
         
             loss = self.loss(logits,torch.tensor(emb_ids, dtype=torch.long).to(self.device))
-            if self.UniformityLoss:
+            if self.UniformityLoss and add_uniformity:
                 loss_uni= self.single_UniformityLoss_twoemb(left_output,drug_atten_, self.device)
                 loss = loss+self.uni_lambda*loss_uni
         
@@ -229,6 +231,15 @@ class classifier(nn.Module):
         #print("right_output_all",right_output_all.shape)
         if self.matching_mode == 'reverse':
             logits, loss_g, cross_att, proto = self.ReverseLocal(left_output, sub_structure, right_output_all, emb_ids)
+            if self.semantic_aux_lambda > 0:
+                _, semantic_aux_loss, _, _ = self.Local(
+                    left_output,
+                    sub_structure,
+                    right_output_all,
+                    emb_ids,
+                    add_uniformity=False,
+                )
+                loss_g = loss_g + self.semantic_aux_lambda * semantic_aux_loss
         else:
             logits,loss_g,cross_att, proto = self.Local(left_output, sub_structure, right_output_all, emb_ids)
         if input[2][0]=="train" and self.use_sign_cls:

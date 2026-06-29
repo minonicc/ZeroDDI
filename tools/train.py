@@ -111,12 +111,15 @@ def train_model(model, datasets, cfg):
             #if torch.distributed.get_rank() == 0:
             torch.save(model.state_dict(), osp.join(osp.join(cfg.work_dir, 'model_parameter'),
                                                     f'model_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
-            torch.save(zsl_best_model, osp.join(osp.join(cfg.work_dir, 'model_parameter'),
-                                                f'zsl_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
-            torch.save(gzsl_best_model, osp.join(osp.join(cfg.work_dir, 'model_parameter'),
-                                                 f'gzsl_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
-            torch.save(seen_best_model, osp.join(osp.join(cfg.work_dir, 'model_parameter'),
-                                                 f'seen_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
+            if zsl_best_model != 0:
+                torch.save(zsl_best_model, osp.join(osp.join(cfg.work_dir, 'model_parameter'),
+                                                    f'zsl_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
+            if gzsl_best_model != 0:
+                torch.save(gzsl_best_model, osp.join(osp.join(cfg.work_dir, 'model_parameter'),
+                                                     f'gzsl_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
+            if seen_best_model != 0:
+                torch.save(seen_best_model, osp.join(osp.join(cfg.work_dir, 'model_parameter'),
+                                                     f'seen_model_best_epoch{epoch + 1}_seed{cfg.seednumber}.pkl'))
 
     logger.info(f"The gzsl best epoch is {gzsl_best_epoch + 1}")
     logger.info(f"The zsl best epoch is {zsl_best_epoch + 1}")

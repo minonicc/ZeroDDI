@@ -6,6 +6,7 @@ model = dict(
     matching_dropout=0.1,
     matching_use_null_evidence=True,
     matching_use_evidence_gate=False,
+    semantic_aux_lambda=0.3,
 )
 
 work_dir = './work_dirs/zeroddi_reverse_seen'

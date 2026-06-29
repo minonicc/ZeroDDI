@@ -105,6 +105,8 @@ def main():
         torch.backends.cudnn.benchmark = True
     if args.work_dir is not None:
         cfg.work_dir = args.work_dir
+    if args.device is not None:
+        cfg.device = args.device
     elif cfg.get('work_dir', None) is None:
         # use config filename as default work_dir if cfg.work_dir is None
         cfg.work_dir = osp.join('./work_dirs',
@@ -158,7 +160,7 @@ def main():
         model = build_classifier(cfg.model)
         model.to(cfg.device)
         print(args.seen_para)
-        model.load_state_dict(torch.load(args.seen_para))
+        model.load_state_dict(torch.load(args.seen_para, map_location=cfg.device))
         acc = evaluate(model, seen_test_dataset, logger, cfg, "seen", visualize_acc=True)
 
     elif args.zsl_para or args.gzsl_para:  # test
@@ -185,9 +187,9 @@ def main():
         print(args.zsl_para)
         #model.load_state_dict(torch.load(args.zsl_para))
         #model.load_state_dict({k.replace('module.', ''): v for k, v in torch.load(args.zsl_para,map_location=cfg.device).items()})
-        model.load_state_dict(torch.load(args.zsl_para))
+        model.load_state_dict(torch.load(args.zsl_para, map_location=cfg.device))
         print(args.gzsl_para)
-        model2.load_state_dict(torch.load(args.gzsl_para))
+        model2.load_state_dict(torch.load(args.gzsl_para, map_location=cfg.device))
 
         # seen_labels = test_dataset.seen_labels
         acc = evaluate(model, zsl_test_dataset, logger, cfg, "zsl", visualize_acc=True)
