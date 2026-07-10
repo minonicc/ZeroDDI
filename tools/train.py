@@ -195,8 +195,15 @@ def evaluate(model, dataset, logger, cfg, zsl, aaa="test", visualize_acc=False):
         log_classification_metrics(logger, cls_metrics)
         logger.info("************************\n")
 
-    
-        return per_class_top_1_acc
+        selection_metric = cfg.get("selection_metric", "per_class_top@1_acc")
+        if selection_metric == "per_class_top@1_acc":
+            return per_class_top_1_acc
+        if selection_metric not in cls_metrics:
+            raise KeyError(
+                f"Unsupported selection_metric: {selection_metric}. "
+                f"Available metrics: {list(cls_metrics.keys()) + ['per_class_top@1_acc']}"
+            )
+        return cls_metrics[selection_metric]
 
     elif zsl == "gzsl":
         # seen_labels, embedid2eventid, H = model.evaluate(mode, preds, gt_ids, instances, prototypes,logger,zsl)

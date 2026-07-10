@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
 warnings.filterwarnings("ignore")  # can remove the warning
 import os
-os.environ['NO_PROXY'] = 'nlm.nih.gov'
+# os.environ['NO_PROXY'] = 'nlm.nih.gov'
 
 
 

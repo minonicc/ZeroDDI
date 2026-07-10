@@ -13,3 +13,4 @@ data/DrugBank5.1.9/gzsl/train.csv
 data/DrugBank5.1.9/kg/
 data/MolecBioNet/
 data/biobert-base-cased-v1.2/
+data/KnowDDI/
