@@ -24,6 +24,7 @@ from torch_geometric.utils import to_dense_batch
 num_atom_type = 120  # including the extra mask tokens
 num_chirality_tag = 3
 from torch_geometric.nn import global_add_pool
+from .pharmacophore import PharmacophoreExtractor, PharmacophorePairEncoder
 
 num_bond_type = 6  # including aromatic and self-loop edge, and extra masked tokens
 num_bond_direction = 3
@@ -326,7 +327,25 @@ class SubExtractor(nn.Module):
 
 @LEFT.register_module()
 class GNN_model(nn.Module):
-    def __init__(self, Allfilename, dropout, device, num_layer, JK, gnn_type, output_dim, extra_data=None, sub_number=30,use_sub=True):
+    def __init__(
+        self,
+        Allfilename,
+        dropout,
+        device,
+        num_layer,
+        JK,
+        gnn_type,
+        output_dim,
+        extra_data=None,
+        sub_number=30,
+        use_sub=True,
+        use_pharmacophore_pairs=False,
+        pharmacophore_pair_dim=300,
+        pharmacophore_pair_hidden_dim=300,
+        pharmacophore_type_dim=32,
+        pharmacophore_max_pairs=128,
+        pharmacophore_pooling="sum",
+    ):
         super().__init__()
         """
         gnn_type are: "gin","gcn","gat","graphsage"
@@ -336,12 +355,18 @@ class GNN_model(nn.Module):
         self.device = device
         self.extra_data = extra_data
         self.use_sub = use_sub
+        self.use_pharmacophore_pairs = use_pharmacophore_pairs
 
         self.num_layer = num_layer
         self.dropout_ratio = dropout
         self.JK = JK
         self.gnn_type = gnn_type
         self.sub_number=sub_number
+
+        self.pharmacophore_extractor = None
+        self.name2pharmacophores = {}
+        if self.use_pharmacophore_pairs:
+            self.pharmacophore_extractor = PharmacophoreExtractor()
 
         self.name2data = self.get_graph_data()
         self.gnn = GNN(self.num_layer, 300, JK=self.JK, drop_ratio=self.dropout_ratio, gnn_type=self.gnn_type)
@@ -351,6 +376,16 @@ class GNN_model(nn.Module):
         self.Dropout_layer = nn.Dropout(self.dropout_ratio)
         if self.use_sub:
             self.pool = SubExtractor(300, self.sub_number, False)
+        if self.use_pharmacophore_pairs:
+            self.pharmacophore_pair_encoder = PharmacophorePairEncoder(
+                atom_dim=300,
+                output_dim=pharmacophore_pair_dim,
+                type_dim=pharmacophore_type_dim,
+                hidden_dim=pharmacophore_pair_hidden_dim,
+                max_pairs=pharmacophore_max_pairs,
+                pooling=pharmacophore_pooling,
+                dropout=self.dropout_ratio,
+            )
         
 
     def get_graph_data(self):    
@@ -385,6 +420,8 @@ class GNN_model(nn.Module):
                         [id])  # id here is zinc id value, stripped of
                     # leading zeros
                     data_dict[name] = data
+                    if self.use_pharmacophore_pairs:
+                        self.name2pharmacophores[name] = self.pharmacophore_extractor(rdkit_mol)
 
             except:
                 continue
@@ -415,6 +452,7 @@ class GNN_model(nn.Module):
         #     x2, drop_rate2 = self.do_sub_drop(drug2_batch.x,drug2_batch.edge_index, drug2_batch.batch)
 
         x1 = self.gnn(drug1_batch.x, drug1_batch.edge_index, drug1_batch.edge_attr) 
+        drug1_batch.node_representation = x1
         out1 = global_add_pool(x1, drug1_batch.batch)  
         if self.use_sub:
             pool1, A1, _ = self.pool(x1, drug1_batch.batch) #[batch, 10, dim]
@@ -422,6 +460,7 @@ class GNN_model(nn.Module):
         out1 = self.projection_head(out1)
 
         x2 = self.gnn(drug2_batch.x, drug2_batch.edge_index, drug2_batch.edge_attr)
+        drug2_batch.node_representation = x2
         out2 = global_add_pool(x2, drug2_batch.batch)
         if self.use_sub:
             pool2, A2,_ = self.pool(x2, drug2_batch.batch)
@@ -433,12 +472,39 @@ class GNN_model(nn.Module):
         out2 = self.Dropout_layer(out2)
         #print("pool2",pool2.shape)
         
+        if self.use_pharmacophore_pairs:
+            drug1_features = [self.name2pharmacophores.get(drug, []) for drug in drug1s]
+            drug2_features = [self.name2pharmacophores.get(drug, []) for drug in drug2s]
+            pharmacophore_pairs, pharmacophore_mask = self.pharmacophore_pair_encoder(
+                drug1_batch,
+                drug2_batch,
+                drug1_features,
+                drug2_features,
+            )
+            pharmacophore_evidence = {
+                "tokens": pharmacophore_pairs,
+                "mask": pharmacophore_mask,
+            }
+        else:
+            pharmacophore_evidence = None
+
         if self.use_sub:
             sub_structure = torch.cat((pool1,pool2),1)
-    
-            return out2, sub_structure, A1, A2
+            if not self.use_pharmacophore_pairs:
+                return out2, sub_structure, A1, A2
+            aux_attention = {
+                "drug2_attention": A2,
+                "pharmacophore": pharmacophore_evidence,
+            }
+            return out2, sub_structure, A1, aux_attention
         else:
-            return out2, None, None, None
+            if not self.use_pharmacophore_pairs:
+                return out2, None, None, None
+            aux_attention = {
+                "drug2_attention": None,
+                "pharmacophore": pharmacophore_evidence,
+            }
+            return out2, None, None, aux_attention
 
 
     
@@ -449,4 +515,3 @@ def mkdir_or_exist(dir_name, mode=0o777):
         return
     dir_name = osp.expanduser(dir_name)
     os.makedirs(dir_name, mode=mode, exist_ok=True)
-

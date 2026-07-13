@@ -149,11 +149,16 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         kg_evidence_dim=300,
         kg_hidden_dim=None,
         kg_feature_vocab_sizes=None,
+        use_pharmacophore_evidence=False,
+        pharmacophore_evidence_dim=300,
+        pharmacophore_hidden_dim=None,
     ):
         super().__init__()
         self.use_evidence_gate = use_evidence_gate
         self.use_kg_evidence = use_kg_evidence
         self.kg_hidden_dim = kg_hidden_dim or hidden_dim
+        self.use_pharmacophore_evidence = use_pharmacophore_evidence
+        self.pharmacophore_hidden_dim = pharmacophore_hidden_dim or hidden_dim
         self.kg_feature_encoder = None
         self.selector = DDIEGuidedEvidenceSelector(
             evidence_dim=evidence_dim,
@@ -174,6 +179,13 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                 hidden_dim=self.kg_hidden_dim,
                 use_null_evidence=use_null_evidence,
             )
+        if self.use_pharmacophore_evidence:
+            self.pharmacophore_selector = DDIEGuidedEvidenceSelector(
+                evidence_dim=pharmacophore_evidence_dim,
+                event_dim=event_dim,
+                hidden_dim=self.pharmacophore_hidden_dim,
+                use_null_evidence=use_null_evidence,
+            )
         if self.use_evidence_gate:
             self.evidence_gate = nn.Sequential(
                 nn.Linear(pair_dim + event_dim + hidden_dim, hidden_dim),
@@ -185,7 +197,15 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         self.scorer = CandidateMatchingHead(
             pair_dim=pair_dim,
             event_dim=event_dim,
-            evidence_dim=hidden_dim + (self.kg_hidden_dim if self.use_kg_evidence else 0),
+            evidence_dim=(
+                hidden_dim
+                + (self.kg_hidden_dim if self.use_kg_evidence else 0)
+                + (
+                    self.pharmacophore_hidden_dim
+                    if self.use_pharmacophore_evidence
+                    else 0
+                )
+            ),
             hidden_dim=hidden_dim,
             dropout=dropout,
         )
@@ -199,6 +219,8 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         evidence_mask=None,
         kg_evidence_tokens=None,
         kg_evidence_mask=None,
+        pharmacophore_evidence_tokens=None,
+        pharmacophore_evidence_mask=None,
     ):
         selected, attention = self.selector(event_tokens, evidence_tokens, evidence_mask)
         kg_selected = None
@@ -219,6 +241,22 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     kg_evidence_tokens,
                     kg_evidence_mask,
                 )
+        pharmacophore_selected = None
+        pharmacophore_attention = None
+        if self.use_pharmacophore_evidence:
+            if pharmacophore_evidence_tokens is None:
+                event_repr = pool_event_tokens(event_tokens)
+                pharmacophore_selected = selected.new_zeros(
+                    selected.size(0),
+                    event_repr.size(0),
+                    self.pharmacophore_hidden_dim,
+                )
+            else:
+                pharmacophore_selected, pharmacophore_attention = self.pharmacophore_selector(
+                    event_tokens,
+                    pharmacophore_evidence_tokens,
+                    pharmacophore_evidence_mask,
+                )
 
         evidence_gate = None
         if self.use_evidence_gate:
@@ -234,6 +272,11 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         selected_for_score = selected
         if self.use_kg_evidence:
             selected_for_score = torch.cat([selected, kg_selected], dim=-1)
+        if self.use_pharmacophore_evidence:
+            selected_for_score = torch.cat(
+                [selected_for_score, pharmacophore_selected],
+                dim=-1,
+            )
 
         logits = self.scorer(pair_repr, event_tokens, selected_for_score)
 
@@ -248,5 +291,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             "attention": attention,
             "kg_selected_evidence": kg_selected,
             "kg_attention": kg_attention,
+            "pharmacophore_selected_evidence": pharmacophore_selected,
+            "pharmacophore_attention": pharmacophore_attention,
             "evidence_gate": evidence_gate,
         }

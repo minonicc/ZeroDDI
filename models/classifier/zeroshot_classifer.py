@@ -32,6 +32,9 @@ class classifier(nn.Module):
                  matching_kg_evidence_dim=300,
                  matching_kg_hidden_dim=None,
                  matching_kg_feature_vocab_sizes=None,
+                 matching_use_pharmacophore_evidence=False,
+                 matching_pharmacophore_evidence_dim=300,
+                 matching_pharmacophore_hidden_dim=None,
                  semantic_aux_lambda=0.0,
                  use_sign_cls = False,
                  attributlabel=None,
@@ -57,6 +60,7 @@ class classifier(nn.Module):
         self.use_attention = use_attention
         self.matching_mode = matching_mode
         self.matching_use_kg_evidence = matching_use_kg_evidence
+        self.matching_use_pharmacophore_evidence = matching_use_pharmacophore_evidence
         self.semantic_aux_lambda = semantic_aux_lambda
         self.use_sign_cls = use_sign_cls
         self.attributlabel = attributlabel
@@ -98,6 +102,9 @@ class classifier(nn.Module):
                 kg_evidence_dim=matching_kg_evidence_dim,
                 kg_hidden_dim=matching_kg_hidden_dim,
                 kg_feature_vocab_sizes=matching_kg_feature_vocab_sizes,
+                use_pharmacophore_evidence=matching_use_pharmacophore_evidence,
+                pharmacophore_evidence_dim=matching_pharmacophore_evidence_dim,
+                pharmacophore_hidden_dim=matching_pharmacophore_hidden_dim,
             )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
@@ -205,9 +212,19 @@ class classifier(nn.Module):
         
         return logits,loss,a,drug_atten_
 
-    def ReverseLocal(self, left_output, drugemb, semanticemb, emb_ids, kg_evidence=None):
+    def ReverseLocal(
+        self,
+        left_output,
+        drugemb,
+        semanticemb,
+        emb_ids,
+        kg_evidence=None,
+        pharmacophore_evidence=None,
+    ):
         kg_evidence_tokens = None
         kg_evidence_mask = None
+        pharmacophore_evidence_tokens = None
+        pharmacophore_evidence_mask = None
         if kg_evidence is not None:
             if isinstance(kg_evidence, dict):
                 kg_evidence_tokens = kg_evidence.get("tokens")
@@ -222,6 +239,20 @@ class classifier(nn.Module):
             kg_evidence_tokens = kg_evidence_tokens.to(self.device)
         if kg_evidence_mask is not None:
             kg_evidence_mask = kg_evidence_mask.to(self.device)
+        if pharmacophore_evidence is not None:
+            if isinstance(pharmacophore_evidence, dict):
+                pharmacophore_evidence_tokens = pharmacophore_evidence.get("tokens")
+                pharmacophore_evidence_mask = pharmacophore_evidence.get("mask")
+            elif isinstance(pharmacophore_evidence, (list, tuple)):
+                pharmacophore_evidence_tokens = pharmacophore_evidence[0]
+                if len(pharmacophore_evidence) > 1:
+                    pharmacophore_evidence_mask = pharmacophore_evidence[1]
+            else:
+                pharmacophore_evidence_tokens = pharmacophore_evidence
+        if pharmacophore_evidence_tokens is not None:
+            pharmacophore_evidence_tokens = pharmacophore_evidence_tokens.to(self.device)
+        if pharmacophore_evidence_mask is not None:
+            pharmacophore_evidence_mask = pharmacophore_evidence_mask.to(self.device)
         labels = torch.as_tensor(emb_ids, dtype=torch.long, device=self.device)
         outputs = self.ReverseMatcher(
             pair_repr=left_output,
@@ -230,6 +261,8 @@ class classifier(nn.Module):
             labels=labels,
             kg_evidence_tokens=kg_evidence_tokens,
             kg_evidence_mask=kg_evidence_mask,
+            pharmacophore_evidence_tokens=pharmacophore_evidence_tokens,
+            pharmacophore_evidence_mask=pharmacophore_evidence_mask,
         )
         return outputs["logits"], outputs["loss"], outputs["attention"], outputs["selected_evidence"]
 
@@ -258,6 +291,9 @@ class classifier(nn.Module):
         kg_evidence = None
         if self.matching_use_kg_evidence and len(input[0]) > 3:
             kg_evidence = input[0][3]
+        pharmacophore_evidence = None
+        if self.matching_use_pharmacophore_evidence and isinstance(d2_att, dict):
+            pharmacophore_evidence = d2_att.get("pharmacophore")
 
         #print("right_output_all",right_output_all.shape)
         if self.matching_mode == 'reverse':
@@ -267,6 +303,7 @@ class classifier(nn.Module):
                 right_output_all,
                 emb_ids,
                 kg_evidence=kg_evidence,
+                pharmacophore_evidence=pharmacophore_evidence,
             )
             if self.semantic_aux_lambda > 0:
                 _, semantic_aux_loss, _, _ = self.Local(
