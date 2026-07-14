@@ -118,6 +118,7 @@ class PharmacophorePairEncoder(nn.Module):
         pooling="sum",
         num_families=len(PHARMACOPHORE_FAMILIES),
         dropout=0.1,
+        batch_pair_mlp=False,
     ):
         super().__init__()
         if pooling not in {"sum", "mean"}:
@@ -126,6 +127,7 @@ class PharmacophorePairEncoder(nn.Module):
         self.output_dim = output_dim
         self.max_pairs = max_pairs
         self.pooling = pooling
+        self.batch_pair_mlp = batch_pair_mlp
         hidden_dim = hidden_dim or output_dim
 
         self.type_embedding = nn.Embedding(num_families, type_dim)
@@ -204,11 +206,12 @@ class PharmacophorePairEncoder(nn.Module):
             device=atom_embeddings.device,
         )
 
-    def _encode_one_pair_set(self, drug_a_atoms, drug_a_pharm, drug_b_atoms, drug_b_pharm):
+    def _build_one_pair_input(self, drug_a_atoms, drug_a_pharm, drug_b_atoms, drug_b_pharm):
         nodes_a, types_a = self._pool_one_drug(drug_a_atoms, drug_a_pharm)
         nodes_b, types_b = self._pool_one_drug(drug_b_atoms, drug_b_pharm)
         if nodes_a.size(0) == 0 or nodes_b.size(0) == 0:
-            return drug_a_atoms.new_zeros((0, self.output_dim))
+            pair_input_dim = self.atom_dim * 4 + self.type_embedding.embedding_dim * 2
+            return drug_a_atoms.new_zeros((0, pair_input_dim))
 
         pair_left = nodes_a[:, None, :].expand(-1, nodes_b.size(0), -1)
         pair_right = nodes_b[None, :, :].expand(nodes_a.size(0), -1, -1)
@@ -229,10 +232,29 @@ class PharmacophorePairEncoder(nn.Module):
 
         if pair_input.size(0) > self.max_pairs:
             pair_input = pair_input[: self.max_pairs]
+        return pair_input
+
+    def _encode_one_pair_set(self, drug_a_atoms, drug_a_pharm, drug_b_atoms, drug_b_pharm):
+        pair_input = self._build_one_pair_input(
+            drug_a_atoms,
+            drug_a_pharm,
+            drug_b_atoms,
+            drug_b_pharm,
+        )
+        if pair_input.size(0) == 0:
+            return drug_a_atoms.new_zeros((0, self.output_dim))
         return self.norm(self.pair_mlp(pair_input))
 
     def forward(self, drug_a_batch, drug_b_batch, drug_a_features, drug_b_features):
         batch_size = len(drug_a_features)
+        if self.batch_pair_mlp:
+            return self._forward_batched_pair_mlp(
+                drug_a_batch,
+                drug_b_batch,
+                drug_a_features,
+                drug_b_features,
+            )
+
         encoded_pairs = []
         for batch_idx in range(batch_size):
             start_a = int(drug_a_batch.ptr[batch_idx])
@@ -259,4 +281,42 @@ class PharmacophorePairEncoder(nn.Module):
                 continue
             output[idx, :length] = pairs[:length]
             mask[idx, :length] = True
+        return output, mask
+
+    def _forward_batched_pair_mlp(self, drug_a_batch, drug_b_batch, drug_a_features, drug_b_features):
+        batch_size = len(drug_a_features)
+        pair_inputs = []
+        lengths = []
+        for batch_idx in range(batch_size):
+            start_a = int(drug_a_batch.ptr[batch_idx])
+            end_a = int(drug_a_batch.ptr[batch_idx + 1])
+            start_b = int(drug_b_batch.ptr[batch_idx])
+            end_b = int(drug_b_batch.ptr[batch_idx + 1])
+            pair_input = self._build_one_pair_input(
+                drug_a_batch.node_representation[start_a:end_a],
+                drug_a_features[batch_idx],
+                drug_b_batch.node_representation[start_b:end_b],
+                drug_b_features[batch_idx],
+            )
+            pair_inputs.append(pair_input)
+            lengths.append(pair_input.size(0))
+
+        max_len = max(lengths + [1])
+        max_len = min(max_len, self.max_pairs)
+        output = drug_a_batch.node_representation.new_zeros(
+            (batch_size, max_len, self.output_dim)
+        )
+        mask = torch.zeros(batch_size, max_len, dtype=torch.bool, device=output.device)
+        non_empty_inputs = [pair_input for pair_input in pair_inputs if pair_input.size(0) > 0]
+        if not non_empty_inputs:
+            return output, mask
+
+        encoded_all = self.norm(self.pair_mlp(torch.cat(non_empty_inputs, dim=0)))
+        cursor = 0
+        for idx, length in enumerate(lengths):
+            if length == 0:
+                continue
+            output[idx, :length] = encoded_all[cursor : cursor + length]
+            mask[idx, :length] = True
+            cursor += length
         return output, mask

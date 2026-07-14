@@ -10,6 +10,7 @@ import pandas as pd
 import os.path as osp
 import pickle as pkl
 import os
+from types import SimpleNamespace
 from rdkit.Chem import AllChem
 from .graph_init import mol_to_graph_data_obj_simple
 from torch_geometric.nn import global_mean_pool, MessagePassing
@@ -345,6 +346,9 @@ class GNN_model(nn.Module):
         pharmacophore_type_dim=32,
         pharmacophore_max_pairs=128,
         pharmacophore_pooling="sum",
+        deduplicate_drugs_in_batch=False,
+        cache_drug_graphs_on_device=False,
+        batch_pharmacophore_pair_mlp=False,
     ):
         super().__init__()
         """
@@ -356,6 +360,8 @@ class GNN_model(nn.Module):
         self.extra_data = extra_data
         self.use_sub = use_sub
         self.use_pharmacophore_pairs = use_pharmacophore_pairs
+        self.deduplicate_drugs_in_batch = deduplicate_drugs_in_batch
+        self.cache_drug_graphs_on_device = cache_drug_graphs_on_device
 
         self.num_layer = num_layer
         self.dropout_ratio = dropout
@@ -385,7 +391,14 @@ class GNN_model(nn.Module):
                 max_pairs=pharmacophore_max_pairs,
                 pooling=pharmacophore_pooling,
                 dropout=self.dropout_ratio,
+                batch_pair_mlp=batch_pharmacophore_pair_mlp,
             )
+
+        if self.cache_drug_graphs_on_device:
+            self.name2data = {
+                drug: data.to(self.device)
+                for drug, data in self.name2data.items()
+            }
         
 
     def get_graph_data(self):    
@@ -429,6 +442,12 @@ class GNN_model(nn.Module):
             except:
                 continue
         return data_dict
+
+    def _get_drug_data(self, drug):
+        data = self.name2data[drug]
+        if self.cache_drug_graphs_on_device:
+            return data
+        return data.to(self.device)
     
  
 
@@ -437,38 +456,67 @@ class GNN_model(nn.Module):
         t1 = time.time()
         drug1s = inputs[0]
         drug2s = inputs[1]
-        drug1_list = []
-        drug2_list = []
-        for i in range(len(drug1s)):
-            drug1 = drug1s[i]
-            drug2 = drug2s[i]
-            data1 = self.name2data[drug1]
-            data2 = self.name2data[drug2]
-            drug1_list.append(data1.to(self.device))
-            drug2_list.append(data2.to(self.device))
-        drug1_batch = Batch.from_data_list(drug1_list)
-        drug2_batch = Batch.from_data_list(drug2_list)
-        # to_drop = True
-        # if to_drop:
-        #     x1, drop_rate1 = self.do_sub_drop(drug1_batch.x,drug1_batch.edge_index, drug1_batch.batch)
-        #     #x, drop_rate = self.do_node_drop(x, drop_rate=0.2)
-        #     x2, drop_rate2 = self.do_sub_drop(drug2_batch.x,drug2_batch.edge_index, drug2_batch.batch)
+        if self.deduplicate_drugs_in_batch:
+            unique_drugs = list(dict.fromkeys(list(drug1s) + list(drug2s)))
+            unique_drug_to_index = {drug: index for index, drug in enumerate(unique_drugs)}
+            unique_drug_list = [self._get_drug_data(drug) for drug in unique_drugs]
+            unique_drug_batch = Batch.from_data_list(unique_drug_list)
 
-        x1 = self.gnn(drug1_batch.x, drug1_batch.edge_index, drug1_batch.edge_attr) 
-        drug1_batch.node_representation = x1
-        out1 = global_add_pool(x1, drug1_batch.batch)  
-        if self.use_sub:
-            pool1, A1, _ = self.pool(x1, drug1_batch.batch) #[batch, 10, dim]
-            pool1 = F.normalize(pool1, dim=-1)        
-        out1 = self.projection_head(out1)
+            unique_x = self.gnn(
+                unique_drug_batch.x,
+                unique_drug_batch.edge_index,
+                unique_drug_batch.edge_attr,
+            )
+            unique_drug_batch.node_representation = unique_x
+            unique_out = global_add_pool(unique_x, unique_drug_batch.batch)
+            if self.use_sub:
+                unique_pool, unique_A, _ = self.pool(unique_x, unique_drug_batch.batch)
+                unique_pool = F.normalize(unique_pool, dim=-1)
+            unique_out = self.projection_head(unique_out)
 
-        x2 = self.gnn(drug2_batch.x, drug2_batch.edge_index, drug2_batch.edge_attr)
-        drug2_batch.node_representation = x2
-        out2 = global_add_pool(x2, drug2_batch.batch)
-        if self.use_sub:
-            pool2, A2,_ = self.pool(x2, drug2_batch.batch)
-            pool2 = F.normalize(pool2, dim=-1)#[batch,subnum,dim]
-        out2 = self.projection_head(out2)
+            drug1_indices = torch.tensor(
+                [unique_drug_to_index[drug] for drug in drug1s],
+                dtype=torch.long,
+                device=unique_out.device,
+            )
+            drug2_indices = torch.tensor(
+                [unique_drug_to_index[drug] for drug in drug2s],
+                dtype=torch.long,
+                device=unique_out.device,
+            )
+            out1 = unique_out.index_select(0, drug1_indices)
+            out2 = unique_out.index_select(0, drug2_indices)
+            if self.use_sub:
+                pool1 = unique_pool.index_select(0, drug1_indices)
+                pool2 = unique_pool.index_select(0, drug2_indices)
+                A1 = unique_A.index_select(0, drug1_indices)
+                A2 = unique_A.index_select(0, drug2_indices)
+        else:
+            drug1_list = []
+            drug2_list = []
+            for i in range(len(drug1s)):
+                drug1 = drug1s[i]
+                drug2 = drug2s[i]
+                drug1_list.append(self._get_drug_data(drug1))
+                drug2_list.append(self._get_drug_data(drug2))
+            drug1_batch = Batch.from_data_list(drug1_list)
+            drug2_batch = Batch.from_data_list(drug2_list)
+
+            x1 = self.gnn(drug1_batch.x, drug1_batch.edge_index, drug1_batch.edge_attr)
+            drug1_batch.node_representation = x1
+            out1 = global_add_pool(x1, drug1_batch.batch)
+            if self.use_sub:
+                pool1, A1, _ = self.pool(x1, drug1_batch.batch)
+                pool1 = F.normalize(pool1, dim=-1)
+            out1 = self.projection_head(out1)
+
+            x2 = self.gnn(drug2_batch.x, drug2_batch.edge_index, drug2_batch.edge_attr)
+            drug2_batch.node_representation = x2
+            out2 = global_add_pool(x2, drug2_batch.batch)
+            if self.use_sub:
+                pool2, A2, _ = self.pool(x2, drug2_batch.batch)
+                pool2 = F.normalize(pool2, dim=-1)
+            out2 = self.projection_head(out2)
 
         drugpair_feature = torch.cat((out1, out2), 1)
         out2 = self.linear(drugpair_feature)
@@ -478,6 +526,15 @@ class GNN_model(nn.Module):
         if self.use_pharmacophore_pairs:
             drug1_features = [self.name2pharmacophores.get(drug, []) for drug in drug1s]
             drug2_features = [self.name2pharmacophores.get(drug, []) for drug in drug2s]
+            if self.deduplicate_drugs_in_batch:
+                drug1_batch = self._pharmacophore_batch_from_unique(
+                    unique_drug_batch,
+                    drug1_indices,
+                )
+                drug2_batch = self._pharmacophore_batch_from_unique(
+                    unique_drug_batch,
+                    drug2_indices,
+                )
             pharmacophore_pairs, pharmacophore_mask = self.pharmacophore_pair_encoder(
                 drug1_batch,
                 drug2_batch,
@@ -508,6 +565,33 @@ class GNN_model(nn.Module):
                 "pharmacophore": pharmacophore_evidence,
             }
             return out2, None, None, aux_attention
+
+
+    def _pharmacophore_batch_from_unique(self, unique_drug_batch, drug_indices):
+        ptr = [0]
+        node_chunks = []
+        for drug_index in drug_indices.detach().cpu().tolist():
+            start = int(unique_drug_batch.ptr[drug_index])
+            end = int(unique_drug_batch.ptr[drug_index + 1])
+            node_chunk = unique_drug_batch.node_representation[start:end]
+            node_chunks.append(node_chunk)
+            ptr.append(ptr[-1] + node_chunk.size(0))
+
+        if node_chunks:
+            node_representation = torch.cat(node_chunks, dim=0)
+        else:
+            node_representation = unique_drug_batch.node_representation.new_zeros(
+                (0, unique_drug_batch.node_representation.size(-1))
+            )
+
+        return SimpleNamespace(
+            ptr=torch.tensor(
+                ptr,
+                dtype=torch.long,
+                device=unique_drug_batch.node_representation.device,
+            ),
+            node_representation=node_representation,
+        )
 
 
     
