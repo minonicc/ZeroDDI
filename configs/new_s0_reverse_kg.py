@@ -7,6 +7,7 @@ kg_pair_file = './data/KnowDDI/drugbank_true_s0/kg/molecbionet_pair_kg_s0.json'
 
 model = dict(
     leftmodel=dict(Allfilename=knowddi_all_file),
+    semantic_aux_mode='candidate',
 )
 
 data = dict(
@@ -66,4 +67,4 @@ data = dict(
 
 selection_metric = 'Macro-F1'
 train_batch_size = 128
-work_dir = './work_dirs/new_s0_reverse_kg'
+work_dir = './work_dirs/new_s0_reverse_kg_candidate_aux'

@@ -33,6 +33,8 @@ class classifier(nn.Module):
                  matching_kg_hidden_dim=None,
                  matching_kg_feature_vocab_sizes=None,
                  semantic_aux_lambda=0.0,
+                 semantic_aux_mode='zeroddi',
+                 semantic_aux_temperature=None,
                  use_sign_cls = False,
                  attributlabel=None,
                 zsl_labels=None,
@@ -58,6 +60,8 @@ class classifier(nn.Module):
         self.matching_mode = matching_mode
         self.matching_use_kg_evidence = matching_use_kg_evidence
         self.semantic_aux_lambda = semantic_aux_lambda
+        self.semantic_aux_mode = semantic_aux_mode
+        self.semantic_aux_temperature = semantic_aux_temperature or temperature
         self.use_sign_cls = use_sign_cls
         self.attributlabel = attributlabel
 
@@ -99,8 +103,17 @@ class classifier(nn.Module):
                 kg_hidden_dim=matching_kg_hidden_dim,
                 kg_feature_vocab_sizes=matching_kg_feature_vocab_sizes,
             )
+            if self.semantic_aux_mode == 'candidate':
+                self.semantic_aux_projector = nn.Sequential(
+                    nn.Linear(256 + matching_hidden_dim, matching_hidden_dim),
+                    nn.LeakyReLU(),
+                    nn.Dropout(matching_dropout),
+                    nn.Linear(matching_hidden_dim, self.Rightmodel.output_dim),
+                )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
+        if self.semantic_aux_mode not in ('zeroddi', 'candidate'):
+            raise ValueError(f"Unsupported semantic_aux_mode: {self.semantic_aux_mode}")
         self.loss = nn.CrossEntropyLoss()
       
       
@@ -233,6 +246,25 @@ class classifier(nn.Module):
         )
         return outputs["logits"], outputs["loss"], outputs["attention"], outputs["selected_evidence"]
 
+    def CandidateSemanticAuxLoss(self, left_output, selected_evidence, semanticemb, emb_ids):
+        if len(semanticemb.shape) == 3:
+            event_repr = torch.mean(semanticemb, 1)
+        else:
+            event_repr = semanticemb
+
+        batch_size = left_output.size(0)
+        num_events = event_repr.size(0)
+        pair_expand = left_output.unsqueeze(1).expand(batch_size, num_events, -1)
+        aux_input = torch.cat([pair_expand, selected_evidence], dim=-1)
+        candidate_drug_repr = self.semantic_aux_projector(aux_input)
+
+        candidate_drug_repr = F.normalize(candidate_drug_repr, dim=-1)
+        event_repr = F.normalize(event_repr, dim=-1)
+        logits = torch.sum(candidate_drug_repr * event_repr.unsqueeze(0), dim=-1)
+        logits = logits / self.semantic_aux_temperature
+        labels = torch.as_tensor(emb_ids, dtype=torch.long, device=self.device)
+        return self.loss(logits, labels)
+
     def forward(self, input):
         """
         input: self.new_current_dataset[index], self.mode,self.zsl_mode,sign,effect,pattern
@@ -269,13 +301,21 @@ class classifier(nn.Module):
                 kg_evidence=kg_evidence,
             )
             if self.semantic_aux_lambda > 0:
-                _, semantic_aux_loss, _, _ = self.Local(
-                    left_output,
-                    sub_structure,
-                    right_output_all,
-                    emb_ids,
-                    add_uniformity=False,
-                )
+                if self.semantic_aux_mode == 'candidate':
+                    semantic_aux_loss = self.CandidateSemanticAuxLoss(
+                        left_output,
+                        proto,
+                        right_output_all,
+                        emb_ids,
+                    )
+                else:
+                    _, semantic_aux_loss, _, _ = self.Local(
+                        left_output,
+                        sub_structure,
+                        right_output_all,
+                        emb_ids,
+                        add_uniformity=False,
+                    )
                 loss_g = loss_g + self.semantic_aux_lambda * semantic_aux_loss
         else:
             logits,loss_g,cross_att, proto = self.Local(left_output, sub_structure, right_output_all, emb_ids)
