@@ -421,7 +421,10 @@ class GNN_model(nn.Module):
                     # leading zeros
                     data_dict[name] = data
                     if self.use_pharmacophore_pairs:
-                        self.name2pharmacophores[name] = self.pharmacophore_extractor(rdkit_mol)
+                        features = self.pharmacophore_extractor(rdkit_mol)
+                        self.name2pharmacophores[name] = (
+                            self.pharmacophore_extractor.to_index_cache(features)
+                        )
 
             except:
                 continue

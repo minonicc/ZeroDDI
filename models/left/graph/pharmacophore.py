@@ -81,6 +81,29 @@ class PharmacophoreExtractor:
             )
         return features
 
+    def to_index_cache(self, features):
+        atom_index = []
+        atom_owner = []
+        atom_count = []
+        type_ids = []
+        for feature_index, feature in enumerate(features):
+            atom_ids = list(feature["atom_ids"])
+            if not atom_ids:
+                continue
+            atom_index.extend(atom_ids)
+            atom_owner.extend([feature_index] * len(atom_ids))
+            atom_count.append(len(atom_ids))
+            type_ids.append(feature["family_id"])
+
+        return {
+            "atom_index": torch.tensor(atom_index, dtype=torch.long),
+            "atom_owner": torch.tensor(atom_owner, dtype=torch.long),
+            "atom_count": torch.tensor(atom_count, dtype=torch.float32),
+            "type_ids": torch.tensor(type_ids, dtype=torch.long),
+            "num_pharmacophores": len(type_ids),
+            "_device_cache": {},
+        }
+
 
 class PharmacophorePairEncoder(nn.Module):
     """Encode cross-drug pharmacophore pairs as DDIE-selectable evidence."""
@@ -115,7 +138,48 @@ class PharmacophorePairEncoder(nn.Module):
         )
         self.norm = nn.LayerNorm(output_dim)
 
+    def _cache_to_device(self, pharmacophores, device):
+        if not isinstance(pharmacophores, dict):
+            return None
+
+        device_key = str(device)
+        device_cache = pharmacophores.setdefault("_device_cache", {})
+        if device_key not in device_cache:
+            device_cache[device_key] = {
+                "atom_index": pharmacophores["atom_index"].to(device),
+                "atom_owner": pharmacophores["atom_owner"].to(device),
+                "atom_count": pharmacophores["atom_count"].to(device),
+                "type_ids": pharmacophores["type_ids"].to(device),
+                "num_pharmacophores": pharmacophores["num_pharmacophores"],
+            }
+        return device_cache[device_key]
+
     def _pool_one_drug(self, atom_embeddings, pharmacophores):
+        cached = self._cache_to_device(pharmacophores, atom_embeddings.device)
+        if cached is not None:
+            num_pharmacophores = cached["num_pharmacophores"]
+            if num_pharmacophores == 0:
+                empty_nodes = atom_embeddings.new_zeros((0, self.atom_dim))
+                empty_types = torch.empty(0, dtype=torch.long, device=atom_embeddings.device)
+                return empty_nodes, empty_types
+
+            valid_mask = cached["atom_index"] < atom_embeddings.size(0)
+            atom_index = cached["atom_index"][valid_mask]
+            atom_owner = cached["atom_owner"][valid_mask]
+            if atom_index.numel() == 0:
+                empty_nodes = atom_embeddings.new_zeros((0, self.atom_dim))
+                empty_types = torch.empty(0, dtype=torch.long, device=atom_embeddings.device)
+                return empty_nodes, empty_types
+
+            selected_atoms = atom_embeddings.index_select(0, atom_index)
+            node_embeddings = atom_embeddings.new_zeros((num_pharmacophores, self.atom_dim))
+            node_embeddings.index_add_(0, atom_owner, selected_atoms)
+            if self.pooling == "mean":
+                counts = atom_embeddings.new_zeros(num_pharmacophores)
+                counts.index_add_(0, atom_owner, torch.ones_like(atom_owner, dtype=atom_embeddings.dtype))
+                node_embeddings = node_embeddings / counts.clamp_min(1.0).unsqueeze(-1)
+            return node_embeddings, cached["type_ids"]
+
         node_embeddings = []
         type_ids = []
         num_atoms = atom_embeddings.size(0)
