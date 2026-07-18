@@ -8,7 +8,9 @@ model = dict(
         pharmacophore_type_dim=32,
         pharmacophore_max_pairs=128,
         pharmacophore_pooling='sum',
-        deduplicate_drugs_in_batch=True,
+        # Keep separate drug1/drug2 GNN passes so BatchNorm statistics and
+        # per-occurrence Dropout behavior match the original training path.
+        deduplicate_drugs_in_batch=False,
         cache_drug_graphs_on_device=True,
         batch_pharmacophore_pair_mlp=True,
     ),
@@ -18,3 +20,7 @@ model = dict(
 )
 
 work_dir = './work_dirs/new_s0_reverse_kg_pharmacophore'
+
+# Anomaly detection is a debugging aid that forces extra synchronization.
+# Disabling it does not change the model forward or gradient definitions.
+detect_anomaly = False

@@ -255,12 +255,14 @@ class PharmacophorePairEncoder(nn.Module):
                 drug_b_features,
             )
 
+        ptr_a = drug_a_batch.ptr.detach().cpu().tolist()
+        ptr_b = drug_b_batch.ptr.detach().cpu().tolist()
         encoded_pairs = []
         for batch_idx in range(batch_size):
-            start_a = int(drug_a_batch.ptr[batch_idx])
-            end_a = int(drug_a_batch.ptr[batch_idx + 1])
-            start_b = int(drug_b_batch.ptr[batch_idx])
-            end_b = int(drug_b_batch.ptr[batch_idx + 1])
+            start_a = ptr_a[batch_idx]
+            end_a = ptr_a[batch_idx + 1]
+            start_b = ptr_b[batch_idx]
+            end_b = ptr_b[batch_idx + 1]
             pairs = self._encode_one_pair_set(
                 drug_a_batch.node_representation[start_a:end_a],
                 drug_a_features[batch_idx],
@@ -285,13 +287,15 @@ class PharmacophorePairEncoder(nn.Module):
 
     def _forward_batched_pair_mlp(self, drug_a_batch, drug_b_batch, drug_a_features, drug_b_features):
         batch_size = len(drug_a_features)
+        ptr_a = drug_a_batch.ptr.detach().cpu().tolist()
+        ptr_b = drug_b_batch.ptr.detach().cpu().tolist()
         pair_inputs = []
         lengths = []
         for batch_idx in range(batch_size):
-            start_a = int(drug_a_batch.ptr[batch_idx])
-            end_a = int(drug_a_batch.ptr[batch_idx + 1])
-            start_b = int(drug_b_batch.ptr[batch_idx])
-            end_b = int(drug_b_batch.ptr[batch_idx + 1])
+            start_a = ptr_a[batch_idx]
+            end_a = ptr_a[batch_idx + 1]
+            start_b = ptr_b[batch_idx]
+            end_b = ptr_b[batch_idx + 1]
             pair_input = self._build_one_pair_input(
                 drug_a_batch.node_representation[start_a:end_a],
                 drug_a_features[batch_idx],

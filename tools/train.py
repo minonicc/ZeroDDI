@@ -59,7 +59,7 @@ def train_model(model, datasets, cfg):
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.001}
     ]
     optimizer = Adam(optimizer_grouped_parameters, lr=cfg.learning_rate)
-    torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(cfg.get('detect_anomaly', True))
 
     zsl_best_model = 0
     gzsl_best_model = 0

@@ -570,9 +570,10 @@ class GNN_model(nn.Module):
     def _pharmacophore_batch_from_unique(self, unique_drug_batch, drug_indices):
         ptr = [0]
         node_chunks = []
+        unique_ptr = unique_drug_batch.ptr.detach().cpu().tolist()
         for drug_index in drug_indices.detach().cpu().tolist():
-            start = int(unique_drug_batch.ptr[drug_index])
-            end = int(unique_drug_batch.ptr[drug_index + 1])
+            start = unique_ptr[drug_index]
+            end = unique_ptr[drug_index + 1]
             node_chunk = unique_drug_batch.node_representation[start:end]
             node_chunks.append(node_chunk)
             ptr.append(ptr[-1] + node_chunk.size(0))
