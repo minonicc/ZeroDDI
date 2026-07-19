@@ -196,6 +196,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         evidence_tokens,
         event_tokens,
         labels=None,
+        class_weight=None,
         evidence_mask=None,
         kg_evidence_tokens=None,
         kg_evidence_mask=None,
@@ -239,7 +240,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
 
         loss = None
         if labels is not None:
-            loss = F.cross_entropy(logits, labels)
+            loss = F.cross_entropy(logits, labels, weight=class_weight)
 
         return {
             "loss": loss,

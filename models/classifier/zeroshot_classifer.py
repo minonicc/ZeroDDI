@@ -33,6 +33,10 @@ class classifier(nn.Module):
                  matching_kg_hidden_dim=None,
                  matching_kg_feature_vocab_sizes=None,
                  semantic_aux_lambda=0.0,
+                 class_counts=None,
+                 class_balanced_beta=0.0,
+                 static_ddie_uniformity_lambda=0.0,
+                 zeroddi_dua_aux_lambda=0.0,
                  use_sign_cls = False,
                  attributlabel=None,
                 zsl_labels=None,
@@ -58,8 +62,15 @@ class classifier(nn.Module):
         self.matching_mode = matching_mode
         self.matching_use_kg_evidence = matching_use_kg_evidence
         self.semantic_aux_lambda = semantic_aux_lambda
+        self.class_balanced_beta = class_balanced_beta
+        self.static_ddie_uniformity_lambda = static_ddie_uniformity_lambda
+        self.zeroddi_dua_aux_lambda = zeroddi_dua_aux_lambda
         self.use_sign_cls = use_sign_cls
         self.attributlabel = attributlabel
+        self.register_buffer(
+            "class_loss_weight",
+            self._build_class_loss_weight(class_counts, class_balanced_beta),
+        )
 
         if self.use_sign_cls:
             self.sign_w = Parameter(torch.Tensor(self.Rightmodel.output_dim, self.Rightmodel.output_dim))
@@ -102,9 +113,27 @@ class classifier(nn.Module):
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
         self.loss = nn.CrossEntropyLoss()
-      
-      
-        
+
+    def _build_class_loss_weight(self, class_counts, beta):
+        if class_counts is None or beta <= 0:
+            return None
+
+        counts = torch.tensor(class_counts, dtype=torch.float32)
+        counts = torch.clamp(counts, min=1.0)
+        weights = (1.0 - beta) / (1.0 - torch.pow(torch.tensor(beta), counts))
+        weights = weights / torch.mean(weights)
+        return weights
+
+    def get_class_loss_weight(self, num_classes):
+        if self.class_loss_weight is None:
+            return None
+        if self.class_loss_weight.numel() != num_classes:
+            raise ValueError(
+                f"class_loss_weight has {self.class_loss_weight.numel()} classes, "
+                f"but logits have {num_classes} classes"
+            )
+        return self.class_loss_weight.to(self.device)
+
     
     def UniformityLoss_twoemb(self, drugembeddings, proto_embedding,device):
         
@@ -158,7 +187,43 @@ class classifier(nn.Module):
         d_cos_dist_matrix = d_cos_dist_matrix - d_unit_matrix
         loss2 =torch.mean(torch.max(d_cos_dist_matrix, 1).values)
 
-        return loss1+loss2  
+        return loss1+loss2
+
+    def StaticDDIEUniformityLoss(self, semanticemb):
+        if len(semanticemb.shape) == 3:
+            event_repr = torch.mean(semanticemb, dim=1)
+        else:
+            event_repr = semanticemb
+
+        if event_repr.size(0) <= 1:
+            return event_repr.new_tensor(0.0)
+
+        center_event_repr = torch.mean(event_repr, dim=0, keepdim=True)
+        normalize_event_repr = F.normalize(event_repr - center_event_repr, dim=-1)
+        cos_dist_matrix = torch.matmul(normalize_event_repr, normalize_event_repr.transpose(0, 1))
+        unit_matrix = torch.eye(cos_dist_matrix.shape[0], device=event_repr.device)
+        cos_dist_matrix = cos_dist_matrix - unit_matrix
+        return torch.mean(torch.max(cos_dist_matrix, 1).values)
+
+    def ZeroDDIDUALoss(self, left_output, drugemb, semanticemb):
+        if self.use_attention:
+            d_k = drugemb.size(-1)
+            Q = torch.matmul(drugemb, self.W_q).expand((semanticemb.shape[0], drugemb.shape[0],
+                                                        drugemb.shape[1],256)).transpose(0, 1)
+            K = torch.matmul(semanticemb, self.W_k).expand((drugemb.shape[0],semanticemb.shape[0],
+                                                        semanticemb.shape[1],semanticemb.shape[2]))
+            V = torch.matmul(semanticemb, self.W_v).expand((drugemb.shape[0],semanticemb.shape[0],
+                                                        semanticemb.shape[1],semanticemb.shape[2]))
+            a = F.softmax(torch.matmul(Q,K.transpose(2, 3))/ math.sqrt(d_k),dim=-1)
+            drug_atten = torch.matmul(a,V)
+            drug_atten_ = torch.mean(drug_atten,dim=2)
+            return self.UniformityLoss_twoemb(left_output, drug_atten_, self.device)
+
+        if len(semanticemb.shape)==3:
+            drug_atten_ = torch.mean(semanticemb,1)
+        else:
+            drug_atten_ = semanticemb
+        return self.single_UniformityLoss_twoemb(left_output, drug_atten_, self.device)
     
 
 
@@ -205,7 +270,7 @@ class classifier(nn.Module):
         
         return logits,loss,a,drug_atten_
 
-    def ReverseLocal(self, left_output, drugemb, semanticemb, emb_ids, kg_evidence=None):
+    def ReverseLocal(self, left_output, drugemb, semanticemb, emb_ids, kg_evidence=None, use_class_weight=False):
         kg_evidence_tokens = None
         kg_evidence_mask = None
         if kg_evidence is not None:
@@ -223,11 +288,13 @@ class classifier(nn.Module):
         if kg_evidence_mask is not None:
             kg_evidence_mask = kg_evidence_mask.to(self.device)
         labels = torch.as_tensor(emb_ids, dtype=torch.long, device=self.device)
+        class_weight = self.get_class_loss_weight(semanticemb.size(0)) if use_class_weight else None
         outputs = self.ReverseMatcher(
             pair_repr=left_output,
             evidence_tokens=drugemb,
             event_tokens=semanticemb,
             labels=labels,
+            class_weight=class_weight,
             kg_evidence_tokens=kg_evidence_tokens,
             kg_evidence_mask=kg_evidence_mask,
         )
@@ -267,6 +334,7 @@ class classifier(nn.Module):
                 right_output_all,
                 emb_ids,
                 kg_evidence=kg_evidence,
+                use_class_weight=input[2][0]=="train",
             )
             if self.semantic_aux_lambda > 0:
                 _, semantic_aux_loss, _, _ = self.Local(
@@ -277,6 +345,14 @@ class classifier(nn.Module):
                     add_uniformity=False,
                 )
                 loss_g = loss_g + self.semantic_aux_lambda * semantic_aux_loss
+            if input[2][0]=="train" and self.static_ddie_uniformity_lambda > 0:
+                loss_g = loss_g + self.static_ddie_uniformity_lambda * self.StaticDDIEUniformityLoss(right_output_all)
+            if input[2][0]=="train" and self.zeroddi_dua_aux_lambda > 0:
+                loss_g = loss_g + self.zeroddi_dua_aux_lambda * self.ZeroDDIDUALoss(
+                    left_output,
+                    sub_structure,
+                    right_output_all,
+                )
         else:
             logits,loss_g,cross_att, proto = self.Local(left_output, sub_structure, right_output_all, emb_ids)
         if input[2][0]=="train" and self.use_sign_cls:

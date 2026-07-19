@@ -176,11 +176,18 @@ class AttriTextBioBERTDataset(Dataset):
 
 
         current_dataset_eventids = list(df_dataset['event_id'])
+        current_dataset_eventid_count = defaultdict(int)
+        for event_id in current_dataset_eventids:
+            current_dataset_eventid_count[event_id] += 1
 
         self.current_dataset_eventid_uni = []
         for i in current_dataset_eventids:
             if i not in self.current_dataset_eventid_uni:
                 self.current_dataset_eventid_uni.append(i)
+        self.current_dataset_eventid_count = [
+            current_dataset_eventid_count[event_id]
+            for event_id in self.current_dataset_eventid_uni
+        ]
   
         self.eventid2embid = {}
         self.embid2eventid = {}
