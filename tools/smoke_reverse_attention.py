@@ -104,6 +104,50 @@ def main():
     kg_feature_outputs["loss"].backward()
     print("kg feature token smoke test ok")
 
+    pharmacophore_tokens = torch.randn(batch_size, 11, evidence_dim)
+    pharmacophore_mask = torch.ones(batch_size, 11, dtype=torch.bool)
+    pharmacophore_mask[0, 7:] = False
+    pharmacophore_mask[1, :] = False
+    pharmacophore_gate_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_pharmacophore_evidence=True,
+        pharmacophore_evidence_dim=evidence_dim,
+        pharmacophore_hidden_dim=hidden_dim,
+        use_pharmacophore_gate=True,
+    )
+    pharmacophore_outputs = pharmacophore_gate_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels=labels,
+        pharmacophore_evidence_tokens=pharmacophore_tokens,
+        pharmacophore_evidence_mask=pharmacophore_mask,
+    )
+    pharmacophore_outputs["loss"].backward()
+
+    pharmacophore_gate = pharmacophore_outputs["pharmacophore_gate"]
+    assert pharmacophore_gate.shape == (batch_size, num_events, 1)
+    assert torch.all((pharmacophore_gate >= 0) & (pharmacophore_gate <= 1))
+    # The existing null token is intentionally retained as the final position.
+    assert pharmacophore_outputs["pharmacophore_attention"].shape == (
+        batch_size,
+        num_events,
+        12,
+    )
+    assert torch.allclose(
+        pharmacophore_outputs["pharmacophore_attention"].sum(dim=-1),
+        torch.ones(batch_size, num_events),
+        atol=1e-6,
+    )
+    assert all(
+        parameter.grad is not None and torch.isfinite(parameter.grad).all()
+        for parameter in pharmacophore_gate_model.pharmacophore_gate.parameters()
+    )
+    print("pharmacophore gate smoke test ok")
+
 
 if __name__ == "__main__":
     main()

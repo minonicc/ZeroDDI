@@ -35,6 +35,7 @@ class classifier(nn.Module):
                  matching_use_pharmacophore_evidence=False,
                  matching_pharmacophore_evidence_dim=300,
                  matching_pharmacophore_hidden_dim=None,
+                 matching_use_pharmacophore_gate=False,
                  semantic_aux_lambda=0.0,
                  use_sign_cls = False,
                  attributlabel=None,
@@ -105,6 +106,7 @@ class classifier(nn.Module):
                 use_pharmacophore_evidence=matching_use_pharmacophore_evidence,
                 pharmacophore_evidence_dim=matching_pharmacophore_evidence_dim,
                 pharmacophore_hidden_dim=matching_pharmacophore_hidden_dim,
+                use_pharmacophore_gate=matching_use_pharmacophore_gate,
             )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
@@ -264,7 +266,19 @@ class classifier(nn.Module):
             pharmacophore_evidence_tokens=pharmacophore_evidence_tokens,
             pharmacophore_evidence_mask=pharmacophore_evidence_mask,
         )
-        return outputs["logits"], outputs["loss"], outputs["attention"], outputs["selected_evidence"]
+        evidence_diagnostics = {
+            "substructure_attention": outputs["attention"],
+            "kg_attention": outputs["kg_attention"],
+            "pharmacophore_attention": outputs["pharmacophore_attention"],
+            "pharmacophore_gate": outputs["pharmacophore_gate"],
+        }
+        return (
+            outputs["logits"],
+            outputs["loss"],
+            outputs["attention"],
+            outputs["selected_evidence"],
+            evidence_diagnostics,
+        )
 
     def forward(self, input):
         """
@@ -297,7 +311,7 @@ class classifier(nn.Module):
 
         #print("right_output_all",right_output_all.shape)
         if self.matching_mode == 'reverse':
-            logits, loss_g, cross_att, proto = self.ReverseLocal(
+            logits, loss_g, cross_att, proto, evidence_diagnostics = self.ReverseLocal(
                 left_output,
                 sub_structure,
                 right_output_all,
@@ -316,6 +330,7 @@ class classifier(nn.Module):
                 loss_g = loss_g + self.semantic_aux_lambda * semantic_aux_loss
         else:
             logits,loss_g,cross_att, proto = self.Local(left_output, sub_structure, right_output_all, emb_ids)
+            evidence_diagnostics = None
         if input[2][0]=="train" and self.use_sign_cls:
             loss_g = loss_g+sign_loss
             
@@ -326,7 +341,17 @@ class classifier(nn.Module):
         #print("eventemb_mean",eventemb_mean.shape)
         prototype = eventemb_mean[emb_ids, :]
 
-        return (loss_g, logits, emb_ids, left_output, prototype, cross_att,d1_att,d2_att )
+        return (
+            loss_g,
+            logits,
+            emb_ids,
+            left_output,
+            prototype,
+            cross_att,
+            d1_att,
+            d2_att,
+            evidence_diagnostics,
+        )
 
     
 

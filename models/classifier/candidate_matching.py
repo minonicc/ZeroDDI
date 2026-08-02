@@ -152,6 +152,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         use_pharmacophore_evidence=False,
         pharmacophore_evidence_dim=300,
         pharmacophore_hidden_dim=None,
+        use_pharmacophore_gate=False,
     ):
         super().__init__()
         self.use_evidence_gate = use_evidence_gate
@@ -159,6 +160,11 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         self.kg_hidden_dim = kg_hidden_dim or hidden_dim
         self.use_pharmacophore_evidence = use_pharmacophore_evidence
         self.pharmacophore_hidden_dim = pharmacophore_hidden_dim or hidden_dim
+        self.use_pharmacophore_gate = use_pharmacophore_gate
+        if self.use_pharmacophore_gate and not self.use_pharmacophore_evidence:
+            raise ValueError(
+                "use_pharmacophore_gate requires use_pharmacophore_evidence=True"
+            )
         self.kg_feature_encoder = None
         self.selector = DDIEGuidedEvidenceSelector(
             evidence_dim=evidence_dim,
@@ -186,6 +192,17 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                 hidden_dim=self.pharmacophore_hidden_dim,
                 use_null_evidence=use_null_evidence,
             )
+            if self.use_pharmacophore_gate:
+                self.pharmacophore_gate = nn.Sequential(
+                    nn.Linear(
+                        pair_dim + event_dim + self.pharmacophore_hidden_dim,
+                        hidden_dim,
+                    ),
+                    nn.LeakyReLU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(hidden_dim, 1),
+                    nn.Sigmoid(),
+                )
         if self.use_evidence_gate:
             self.evidence_gate = nn.Sequential(
                 nn.Linear(pair_dim + event_dim + hidden_dim, hidden_dim),
@@ -243,6 +260,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                 )
         pharmacophore_selected = None
         pharmacophore_attention = None
+        pharmacophore_gate = None
         if self.use_pharmacophore_evidence:
             if pharmacophore_evidence_tokens is None:
                 event_repr = pool_event_tokens(event_tokens)
@@ -257,6 +275,18 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     pharmacophore_evidence_tokens,
                     pharmacophore_evidence_mask,
                 )
+            if self.use_pharmacophore_gate:
+                event_repr = pool_event_tokens(event_tokens)
+                batch_size = pair_repr.size(0)
+                num_events = event_repr.size(0)
+                pair_expand = pair_repr.unsqueeze(1).expand(batch_size, num_events, -1)
+                event_expand = event_repr.unsqueeze(0).expand(batch_size, num_events, -1)
+                gate_input = torch.cat(
+                    [pair_expand, event_expand, pharmacophore_selected],
+                    dim=-1,
+                )
+                pharmacophore_gate = self.pharmacophore_gate(gate_input)
+                pharmacophore_selected = pharmacophore_selected * pharmacophore_gate
 
         evidence_gate = None
         if self.use_evidence_gate:
@@ -293,5 +323,6 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             "kg_attention": kg_attention,
             "pharmacophore_selected_evidence": pharmacophore_selected,
             "pharmacophore_attention": pharmacophore_attention,
+            "pharmacophore_gate": pharmacophore_gate,
             "evidence_gate": evidence_gate,
         }
