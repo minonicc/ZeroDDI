@@ -43,6 +43,8 @@ def parse_args():
         '--device', default="cuda:0", help='cuda:0 or cuda:1')
     parser.add_argument(
         '--seednumber', default=42, help='number of seeds')
+    parser.add_argument(
+        '--max-epochs', type=int, help='override num_epochs from the config')
 
     group_gpus = parser.add_mutually_exclusive_group()
     group_gpus.add_argument(
@@ -106,6 +108,10 @@ def main():
     args = parse_args()
     # get config from file
     cfg = Config.fromfile(args.config)
+    if args.max_epochs is not None:
+        if args.max_epochs <= 0:
+            raise ValueError('--max-epochs must be positive')
+        cfg.num_epochs = args.max_epochs
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True

@@ -230,7 +230,7 @@ class PharmacophorePairEncoder(nn.Module):
             dim=-1,
         ).reshape(-1, self.atom_dim * 4 + type_left.size(-1) * 2)
 
-        if pair_input.size(0) > self.max_pairs:
+        if self.max_pairs is not None and pair_input.size(0) > self.max_pairs:
             pair_input = pair_input[: self.max_pairs]
         return pair_input
 
@@ -272,7 +272,8 @@ class PharmacophorePairEncoder(nn.Module):
             encoded_pairs.append(pairs)
 
         max_len = max([pairs.size(0) for pairs in encoded_pairs] + [1])
-        max_len = min(max_len, self.max_pairs)
+        if self.max_pairs is not None:
+            max_len = min(max_len, self.max_pairs)
         output = drug_a_batch.node_representation.new_zeros(
             (batch_size, max_len, self.output_dim)
         )
@@ -306,7 +307,8 @@ class PharmacophorePairEncoder(nn.Module):
             lengths.append(pair_input.size(0))
 
         max_len = max(lengths + [1])
-        max_len = min(max_len, self.max_pairs)
+        if self.max_pairs is not None:
+            max_len = min(max_len, self.max_pairs)
         output = drug_a_batch.node_representation.new_zeros(
             (batch_size, max_len, self.output_dim)
         )

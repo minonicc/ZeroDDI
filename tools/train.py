@@ -119,6 +119,11 @@ def train_model(model, datasets, cfg):
                     best_seen_metrics = seen_metrics
                     seen_best_epoch = epoch
                     seen_best_model = copy.deepcopy(model.state_dict())
+            alpha = getattr(model.Leftmodel, "fixed_substructure_alpha", None)
+            if alpha is not None:
+                alpha_value = float(alpha.detach().cpu())
+                history['fixed_substructure_alpha'].append(alpha_value)
+                logger.info("fixed_substructure_alpha:%f", alpha_value)
             # print("time",time.time()-t1)
         if (epoch + 1) % 20 == 0:
             #if torch.distributed.get_rank() == 0:

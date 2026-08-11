@@ -26,7 +26,7 @@ class DDIEGuidedEvidenceSelector(nn.Module):
         if self.use_null_evidence:
             self.null_evidence = nn.Parameter(torch.zeros(1, 1, evidence_dim))
 
-    def forward(self, event_tokens, evidence_tokens, evidence_mask=None):
+    def forward(self, event_tokens, evidence_tokens, evidence_mask=None, top_k=None):
         """
         Args:
             event_tokens: [num_events, event_len, event_dim] or [num_events, event_dim]
@@ -38,6 +38,13 @@ class DDIEGuidedEvidenceSelector(nn.Module):
             attention: [batch, num_events, num_evidence]
         """
         event_repr = pool_event_tokens(event_tokens)
+
+        if top_k is not None:
+            if top_k <= 0:
+                raise ValueError("top_k must be positive")
+            return self._forward_top_k(
+                event_repr, evidence_tokens, evidence_mask, top_k
+            )
 
         if self.use_null_evidence:
             null_evidence = self.null_evidence.expand(evidence_tokens.size(0), -1, -1)
@@ -63,7 +70,69 @@ class DDIEGuidedEvidenceSelector(nn.Module):
 
         attention = F.softmax(scores, dim=-1)
         selected = torch.matmul(attention, value)
-        return selected, attention
+        return selected, attention, None, evidence_mask
+
+    def _forward_top_k(self, event_repr, evidence_tokens, evidence_mask, top_k):
+        """Select candidate-specific real evidence before adding the null token."""
+        batch_size, num_evidence, _ = evidence_tokens.shape
+        if evidence_mask is None:
+            evidence_mask = torch.ones(
+                batch_size,
+                num_evidence,
+                dtype=torch.bool,
+                device=evidence_tokens.device,
+            )
+
+        query = self.query(event_repr).unsqueeze(0).expand(batch_size, -1, -1)
+        key = self.key(evidence_tokens)
+        value = self.value(evidence_tokens)
+        scores = torch.matmul(query, key.transpose(1, 2)) / math.sqrt(self.hidden_dim)
+        scores = scores.masked_fill(
+            ~evidence_mask.unsqueeze(1), torch.finfo(scores.dtype).min
+        )
+
+        selected_count = min(int(top_k), num_evidence)
+        top_scores, top_indices = torch.topk(scores, selected_count, dim=-1)
+        expanded_mask = evidence_mask.unsqueeze(1).expand(-1, event_repr.size(0), -1)
+        top_valid = torch.gather(expanded_mask, 2, top_indices)
+        expanded_value = value.unsqueeze(1).expand(-1, event_repr.size(0), -1, -1)
+        top_values = torch.gather(
+            expanded_value,
+            2,
+            top_indices.unsqueeze(-1).expand(-1, -1, -1, value.size(-1)),
+        )
+
+        if self.use_null_evidence:
+            null = self.null_evidence.expand(batch_size, -1, -1)
+            null_key = self.key(null)
+            null_value = self.value(null).unsqueeze(1).expand(
+                -1, event_repr.size(0), -1, -1
+            )
+            null_scores = torch.matmul(query, null_key.transpose(1, 2))
+            null_scores = null_scores / math.sqrt(self.hidden_dim)
+            top_scores = torch.cat([top_scores, null_scores], dim=-1)
+            top_values = torch.cat([top_values, null_value], dim=2)
+            top_valid = torch.cat(
+                [
+                    top_valid,
+                    torch.ones(
+                        batch_size,
+                        event_repr.size(0),
+                        1,
+                        dtype=torch.bool,
+                        device=evidence_tokens.device,
+                    ),
+                ],
+                dim=-1,
+            )
+
+        top_scores = top_scores.masked_fill(
+            ~top_valid, torch.finfo(top_scores.dtype).min
+        )
+        attention = F.softmax(top_scores, dim=-1)
+        attention = attention.masked_fill(~top_valid, 0.0)
+        selected = torch.matmul(attention.unsqueeze(-2), top_values).squeeze(-2)
+        return selected, attention, top_indices, top_valid
 
 
 class KGEvidenceFeatureEncoder(nn.Module):
@@ -144,6 +213,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         hidden_dim=256,
         dropout=0.1,
         use_null_evidence=True,
+        use_substructure_evidence=True,
         use_evidence_gate=False,
         use_kg_evidence=False,
         kg_evidence_dim=300,
@@ -153,25 +223,34 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_evidence_dim=300,
         pharmacophore_hidden_dim=None,
         use_pharmacophore_gate=False,
+        pharmacophore_top_k=None,
     ):
         super().__init__()
+        self.hidden_dim = hidden_dim
+        self.use_substructure_evidence = use_substructure_evidence
         self.use_evidence_gate = use_evidence_gate
+        if self.use_evidence_gate and not self.use_substructure_evidence:
+            raise ValueError(
+                "use_evidence_gate requires use_substructure_evidence=True"
+            )
         self.use_kg_evidence = use_kg_evidence
         self.kg_hidden_dim = kg_hidden_dim or hidden_dim
         self.use_pharmacophore_evidence = use_pharmacophore_evidence
         self.pharmacophore_hidden_dim = pharmacophore_hidden_dim or hidden_dim
         self.use_pharmacophore_gate = use_pharmacophore_gate
+        self.pharmacophore_top_k = pharmacophore_top_k
         if self.use_pharmacophore_gate and not self.use_pharmacophore_evidence:
             raise ValueError(
                 "use_pharmacophore_gate requires use_pharmacophore_evidence=True"
             )
         self.kg_feature_encoder = None
-        self.selector = DDIEGuidedEvidenceSelector(
-            evidence_dim=evidence_dim,
-            event_dim=event_dim,
-            hidden_dim=hidden_dim,
-            use_null_evidence=use_null_evidence,
-        )
+        if self.use_substructure_evidence:
+            self.selector = DDIEGuidedEvidenceSelector(
+                evidence_dim=evidence_dim,
+                event_dim=event_dim,
+                hidden_dim=hidden_dim,
+                use_null_evidence=use_null_evidence,
+            )
         if self.use_kg_evidence:
             if kg_feature_vocab_sizes is not None:
                 self.kg_feature_encoder = KGEvidenceFeatureEncoder(
@@ -215,7 +294,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             pair_dim=pair_dim,
             event_dim=event_dim,
             evidence_dim=(
-                hidden_dim
+                (hidden_dim if self.use_substructure_evidence else 0)
                 + (self.kg_hidden_dim if self.use_kg_evidence else 0)
                 + (
                     self.pharmacophore_hidden_dim
@@ -239,7 +318,20 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_evidence_tokens=None,
         pharmacophore_evidence_mask=None,
     ):
-        selected, attention = self.selector(event_tokens, evidence_tokens, evidence_mask)
+        if self.use_substructure_evidence:
+            if evidence_tokens is None:
+                raise ValueError(
+                    "evidence_tokens are required when substructure evidence is enabled"
+                )
+            selected, attention, _, _ = self.selector(
+                event_tokens, evidence_tokens, evidence_mask
+            )
+        else:
+            event_repr = pool_event_tokens(event_tokens)
+            selected = pair_repr.new_zeros(
+                pair_repr.size(0), event_repr.size(0), self.hidden_dim
+            )
+            attention = None
         kg_selected = None
         kg_attention = None
         if self.use_kg_evidence:
@@ -253,13 +345,15 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             else:
                 if self.kg_feature_encoder is not None:
                     kg_evidence_tokens = self.kg_feature_encoder(kg_evidence_tokens)
-                kg_selected, kg_attention = self.kg_selector(
+                kg_selected, kg_attention, _, _ = self.kg_selector(
                     event_tokens,
                     kg_evidence_tokens,
                     kg_evidence_mask,
                 )
         pharmacophore_selected = None
         pharmacophore_attention = None
+        pharmacophore_selection_indices = None
+        pharmacophore_selection_mask = None
         pharmacophore_gate = None
         if self.use_pharmacophore_evidence:
             if pharmacophore_evidence_tokens is None:
@@ -270,10 +364,16 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     self.pharmacophore_hidden_dim,
                 )
             else:
-                pharmacophore_selected, pharmacophore_attention = self.pharmacophore_selector(
+                (
+                    pharmacophore_selected,
+                    pharmacophore_attention,
+                    pharmacophore_selection_indices,
+                    pharmacophore_selection_mask,
+                ) = self.pharmacophore_selector(
                     event_tokens,
                     pharmacophore_evidence_tokens,
                     pharmacophore_evidence_mask,
+                    top_k=self.pharmacophore_top_k,
                 )
             if self.use_pharmacophore_gate:
                 event_repr = pool_event_tokens(event_tokens)
@@ -299,9 +399,9 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             evidence_gate = self.evidence_gate(gate_input)
             selected = selected * evidence_gate
 
-        selected_for_score = selected
+        selected_for_score = selected if self.use_substructure_evidence else selected[..., :0]
         if self.use_kg_evidence:
-            selected_for_score = torch.cat([selected, kg_selected], dim=-1)
+            selected_for_score = torch.cat([selected_for_score, kg_selected], dim=-1)
         if self.use_pharmacophore_evidence:
             selected_for_score = torch.cat(
                 [selected_for_score, pharmacophore_selected],
@@ -323,6 +423,8 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             "kg_attention": kg_attention,
             "pharmacophore_selected_evidence": pharmacophore_selected,
             "pharmacophore_attention": pharmacophore_attention,
+            "pharmacophore_selection_indices": pharmacophore_selection_indices,
+            "pharmacophore_selection_mask": pharmacophore_selection_mask,
             "pharmacophore_gate": pharmacophore_gate,
             "evidence_gate": evidence_gate,
         }

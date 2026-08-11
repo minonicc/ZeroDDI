@@ -340,6 +340,9 @@ class GNN_model(nn.Module):
         extra_data=None,
         sub_number=30,
         use_sub=True,
+        use_query_substructure=True,
+        use_fixed_substructure_base=False,
+        fixed_substructure_alpha_init=0.0,
         use_pharmacophore_pairs=False,
         pharmacophore_pair_dim=300,
         pharmacophore_pair_hidden_dim=300,
@@ -359,6 +362,12 @@ class GNN_model(nn.Module):
         self.device = device
         self.extra_data = extra_data
         self.use_sub = use_sub
+        self.use_query_substructure = use_query_substructure
+        self.use_fixed_substructure_base = use_fixed_substructure_base
+        if (self.use_query_substructure or self.use_fixed_substructure_base) and not self.use_sub:
+            raise ValueError(
+                "substructure query/base branches require use_sub=True"
+            )
         self.use_pharmacophore_pairs = use_pharmacophore_pairs
         self.deduplicate_drugs_in_batch = deduplicate_drugs_in_batch
         self.cache_drug_graphs_on_device = cache_drug_graphs_on_device
@@ -382,6 +391,11 @@ class GNN_model(nn.Module):
         self.Dropout_layer = nn.Dropout(self.dropout_ratio)
         if self.use_sub:
             self.pool = SubExtractor(300, self.sub_number, False)
+        if self.use_fixed_substructure_base:
+            self.fixed_substructure_projection = nn.Identity()
+            self.fixed_substructure_alpha = nn.Parameter(
+                torch.tensor(float(fixed_substructure_alpha_init))
+            )
         if self.use_pharmacophore_pairs:
             self.pharmacophore_pair_encoder = PharmacophorePairEncoder(
                 atom_dim=300,
@@ -518,6 +532,12 @@ class GNN_model(nn.Module):
                 pool2 = F.normalize(pool2, dim=-1)
             out2 = self.projection_head(out2)
 
+        if self.use_fixed_substructure_base:
+            fixed_sub1 = self.fixed_substructure_projection(pool1.mean(dim=1))
+            fixed_sub2 = self.fixed_substructure_projection(pool2.mean(dim=1))
+            out1 = out1 + self.fixed_substructure_alpha * fixed_sub1
+            out2 = out2 + self.fixed_substructure_alpha * fixed_sub2
+
         drugpair_feature = torch.cat((out1, out2), 1)
         out2 = self.linear(drugpair_feature)
         out2 = self.Dropout_layer(out2)
@@ -549,7 +569,9 @@ class GNN_model(nn.Module):
             pharmacophore_evidence = None
 
         if self.use_sub:
-            sub_structure = torch.cat((pool1,pool2),1)
+            sub_structure = None
+            if self.use_query_substructure:
+                sub_structure = torch.cat((pool1,pool2),1)
             if not self.use_pharmacophore_pairs:
                 return out2, sub_structure, A1, A2
             aux_attention = {

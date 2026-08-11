@@ -27,6 +27,7 @@ class classifier(nn.Module):
                  matching_hidden_dim=256,
                  matching_dropout=0.1,
                  matching_use_null_evidence=True,
+                 matching_use_substructure_evidence=True,
                  matching_use_evidence_gate=False,
                  matching_use_kg_evidence=False,
                  matching_kg_evidence_dim=300,
@@ -36,6 +37,7 @@ class classifier(nn.Module):
                  matching_pharmacophore_evidence_dim=300,
                  matching_pharmacophore_hidden_dim=None,
                  matching_use_pharmacophore_gate=False,
+                 matching_pharmacophore_top_k=None,
                  semantic_aux_lambda=0.0,
                  use_sign_cls = False,
                  attributlabel=None,
@@ -98,6 +100,7 @@ class classifier(nn.Module):
                 hidden_dim=matching_hidden_dim,
                 dropout=matching_dropout,
                 use_null_evidence=matching_use_null_evidence,
+                use_substructure_evidence=matching_use_substructure_evidence,
                 use_evidence_gate=matching_use_evidence_gate,
                 use_kg_evidence=matching_use_kg_evidence,
                 kg_evidence_dim=matching_kg_evidence_dim,
@@ -107,6 +110,7 @@ class classifier(nn.Module):
                 pharmacophore_evidence_dim=matching_pharmacophore_evidence_dim,
                 pharmacophore_hidden_dim=matching_pharmacophore_hidden_dim,
                 use_pharmacophore_gate=matching_use_pharmacophore_gate,
+                pharmacophore_top_k=matching_pharmacophore_top_k,
             )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
@@ -271,6 +275,12 @@ class classifier(nn.Module):
             "kg_attention": outputs["kg_attention"],
             "pharmacophore_attention": outputs["pharmacophore_attention"],
             "pharmacophore_gate": outputs["pharmacophore_gate"],
+            "pharmacophore_selection_indices": outputs[
+                "pharmacophore_selection_indices"
+            ],
+            "pharmacophore_selection_mask": outputs[
+                "pharmacophore_selection_mask"
+            ],
         }
         return (
             outputs["logits"],

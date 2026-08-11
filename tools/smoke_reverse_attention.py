@@ -148,6 +148,66 @@ def main():
     )
     print("pharmacophore gate smoke test ok")
 
+    no_substructure_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_substructure_evidence=False,
+        use_kg_evidence=True,
+        kg_evidence_dim=evidence_dim,
+        use_pharmacophore_evidence=True,
+        pharmacophore_evidence_dim=evidence_dim,
+    )
+    no_substructure_outputs = no_substructure_model(
+        pair_repr,
+        None,
+        event_tokens,
+        labels,
+        kg_evidence_tokens=kg_tokens,
+        kg_evidence_mask=kg_mask,
+        pharmacophore_evidence_tokens=pharmacophore_tokens,
+        pharmacophore_evidence_mask=pharmacophore_mask,
+    )
+    no_substructure_outputs["loss"].backward()
+    assert no_substructure_outputs["attention"] is None
+    assert no_substructure_outputs["logits"].shape == (batch_size, num_events)
+    print("no substructure query smoke test ok")
+
+    top_k_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_pharmacophore_evidence=True,
+        pharmacophore_evidence_dim=evidence_dim,
+        pharmacophore_top_k=5,
+    )
+    top_k_outputs = top_k_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels,
+        pharmacophore_evidence_tokens=pharmacophore_tokens,
+        pharmacophore_evidence_mask=pharmacophore_mask,
+    )
+    top_k_outputs["loss"].backward()
+    top_k_indices = top_k_outputs["pharmacophore_selection_indices"]
+    top_k_mask = top_k_outputs["pharmacophore_selection_mask"]
+    assert top_k_indices.shape == (batch_size, num_events, 5)
+    assert top_k_mask.shape == (batch_size, num_events, 6)  # five real + null
+    assert not top_k_mask[1, :, :-1].any()
+    assert top_k_mask[1, :, -1].all()
+    assert torch.allclose(
+        top_k_outputs["pharmacophore_attention"].sum(dim=-1),
+        torch.ones(batch_size, num_events),
+        atol=1e-6,
+    )
+    assert torch.all(
+        top_k_indices[0][top_k_mask[0, :, :-1]] < 7
+    )
+    print("candidate-specific pharmacophore top-k smoke test ok")
+
 
 if __name__ == "__main__":
     main()
