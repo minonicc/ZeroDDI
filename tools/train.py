@@ -70,6 +70,7 @@ def train_model(model, datasets, cfg):
     seen_best_model = 0
     seen_best_epoch = 0
     best_seen_acc = 0
+    best_seen_metrics = None
     eval_modes = cfg.get('eval_modes', ['zsl', 'gzsl'])
     eval_interval = cfg.get('eval_interval', 1)
 
@@ -109,9 +110,13 @@ def train_model(model, datasets, cfg):
                     gzsl_best_model = copy.deepcopy(model.state_dict())
 
             if 'seen' in eval_modes:
-                seen_acc = evaluate(model, datasets[1], logger, cfg, "seen", "test")
-                if seen_acc > best_seen_acc:
+                seen_metrics = evaluate(
+                    model, datasets[1], logger, cfg, "seen", "test", return_metrics=True
+                )
+                seen_acc = seen_metrics[cfg.get("selection_metric", "Macro-F1")]
+                if is_better_checkpoint(seen_metrics, best_seen_metrics):
                     best_seen_acc = seen_acc
+                    best_seen_metrics = seen_metrics
                     seen_best_epoch = epoch
                     seen_best_model = copy.deepcopy(model.state_dict())
             # print("time",time.time()-t1)
@@ -132,21 +137,49 @@ def train_model(model, datasets, cfg):
     logger.info(f"The gzsl best epoch is {gzsl_best_epoch + 1}")
     logger.info(f"The zsl best epoch is {zsl_best_epoch + 1}")
     logger.info(f"The seen best epoch is {seen_best_epoch + 1}")
+    if seen_best_model != 0:
+        torch.save(seen_best_model, cfg.model_parameter_best)
+        logger.info(
+            "Saved validation-selected seen checkpoint to %s with metrics %s",
+            cfg.model_parameter_best,
+            best_seen_metrics,
+        )
     # save history
 
 
 
-def evaluate(model, dataset, logger, cfg, zsl, aaa="test", visualize_acc=False):
+def is_better_checkpoint(metrics, best_metrics, macro_f1_tolerance=0.001):
+    """Compare validation checkpoints using Macro-F1, then Kappa and ACC."""
+    if best_metrics is None:
+        return True
+    macro_delta = metrics["Macro-F1"] - best_metrics["Macro-F1"]
+    if abs(macro_delta) >= macro_f1_tolerance:
+        return macro_delta > 0
+    if metrics["Kappa"] != best_metrics["Kappa"]:
+        return metrics["Kappa"] > best_metrics["Kappa"]
+    return metrics["ACC"] > best_metrics["ACC"]
 
-    eval_sampler = RandomSampler(dataset)
+
+def evaluate(
+    model,
+    dataset,
+    logger,
+    cfg,
+    zsl,
+    aaa="test",
+    visualize_acc=False,
+    return_metrics=False,
+):
+
+    eval_sampler = SequentialSampler(dataset)
     use_collate_fn = False
     evel_data_len = len(dataset)
     if use_collate_fn:
         eval_dataloader = DataLoader(dataset, sampler=eval_sampler,
-                                     batch_size=64, collate_fn=dataset.collate_fn,drop_last=True)
+                                     batch_size=64, collate_fn=dataset.collate_fn,drop_last=False)
     else:
         eval_dataloader = DataLoader(dataset, sampler=eval_sampler,
-                                     batch_size=64,drop_last=True)
+                                     batch_size=64,drop_last=False)
       
     mode = dataset.mode
     logger.info(
@@ -195,6 +228,8 @@ def evaluate(model, dataset, logger, cfg, zsl, aaa="test", visualize_acc=False):
         log_classification_metrics(logger, cls_metrics)
         logger.info("************************\n")
 
+        if return_metrics:
+            return cls_metrics
         selection_metric = cfg.get("selection_metric", "per_class_top@1_acc")
         if selection_metric == "per_class_top@1_acc":
             return per_class_top_1_acc
