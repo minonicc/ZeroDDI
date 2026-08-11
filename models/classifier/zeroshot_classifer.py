@@ -38,6 +38,9 @@ class classifier(nn.Module):
                  matching_pharmacophore_hidden_dim=None,
                  matching_use_pharmacophore_gate=False,
                  matching_pharmacophore_top_k=None,
+                 matching_pharmacophore_drug_top_k=None,
+                 matching_pharmacophore_type_dim=32,
+                 matching_pharmacophore_candidate_chunk_size=8,
                  semantic_aux_lambda=0.0,
                  use_sign_cls = False,
                  attributlabel=None,
@@ -111,6 +114,9 @@ class classifier(nn.Module):
                 pharmacophore_hidden_dim=matching_pharmacophore_hidden_dim,
                 use_pharmacophore_gate=matching_use_pharmacophore_gate,
                 pharmacophore_top_k=matching_pharmacophore_top_k,
+                pharmacophore_drug_top_k=matching_pharmacophore_drug_top_k,
+                pharmacophore_type_dim=matching_pharmacophore_type_dim,
+                pharmacophore_candidate_chunk_size=matching_pharmacophore_candidate_chunk_size,
             )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
@@ -231,6 +237,7 @@ class classifier(nn.Module):
         kg_evidence_mask = None
         pharmacophore_evidence_tokens = None
         pharmacophore_evidence_mask = None
+        pharmacophore_drug_inputs = {}
         if kg_evidence is not None:
             if isinstance(kg_evidence, dict):
                 kg_evidence_tokens = kg_evidence.get("tokens")
@@ -249,6 +256,19 @@ class classifier(nn.Module):
             if isinstance(pharmacophore_evidence, dict):
                 pharmacophore_evidence_tokens = pharmacophore_evidence.get("tokens")
                 pharmacophore_evidence_mask = pharmacophore_evidence.get("mask")
+                for name in (
+                    "drug_a_nodes",
+                    "drug_a_types",
+                    "drug_a_mask",
+                    "drug_b_nodes",
+                    "drug_b_types",
+                    "drug_b_mask",
+                ):
+                    value = pharmacophore_evidence.get(name)
+                    if value is not None:
+                        pharmacophore_drug_inputs[f"pharmacophore_{name}"] = value.to(
+                            self.device
+                        )
             elif isinstance(pharmacophore_evidence, (list, tuple)):
                 pharmacophore_evidence_tokens = pharmacophore_evidence[0]
                 if len(pharmacophore_evidence) > 1:
@@ -269,6 +289,7 @@ class classifier(nn.Module):
             kg_evidence_mask=kg_evidence_mask,
             pharmacophore_evidence_tokens=pharmacophore_evidence_tokens,
             pharmacophore_evidence_mask=pharmacophore_evidence_mask,
+            **pharmacophore_drug_inputs,
         )
         evidence_diagnostics = {
             "substructure_attention": outputs["attention"],
@@ -280,6 +301,12 @@ class classifier(nn.Module):
             ],
             "pharmacophore_selection_mask": outputs[
                 "pharmacophore_selection_mask"
+            ],
+            "pharmacophore_drug_selection": outputs[
+                "pharmacophore_drug_selection"
+            ],
+            "pharmacophore_valid_pair_count": outputs[
+                "pharmacophore_valid_pair_count"
             ],
         }
         return (

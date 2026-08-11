@@ -25,8 +25,11 @@ from sklearn.metrics import (
     f1_score,
     precision_score,
     recall_score,
+    confusion_matrix,
+    precision_recall_fscore_support,
 )
 import pickle
+import json
 from collections import defaultdict
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.lines import Line2D
@@ -34,6 +37,99 @@ from matplotlib.lines import Line2D
 
 global history
 history = defaultdict(list)
+
+
+class EvidenceDiagnosticsAccumulator:
+    def __init__(self):
+        self.values = defaultdict(list)
+        self.gate_sum_by_class = None
+        self.gate_count_by_class = 0
+        self.drug_type_selected = torch.zeros(6, dtype=torch.float64)
+        self.drug_type_available = torch.zeros(6, dtype=torch.float64)
+
+    def update(self, diagnostics):
+        if not diagnostics:
+            return
+        attention = diagnostics.get("pharmacophore_attention")
+        if attention is not None:
+            probability = attention.detach().float()
+            entropy = -(probability * probability.clamp_min(1e-12).log()).sum(dim=-1)
+            self.values["attention_entropy"].append(entropy.mean().cpu())
+            self.values["attention_top1_mass"].append(
+                probability.max(dim=-1).values.mean().cpu()
+            )
+            self.values["attention_top5_mass"].append(
+                probability.topk(min(5, probability.size(-1)), dim=-1).values.sum(dim=-1).mean().cpu()
+            )
+            self.values["null_token_weight"].append(probability[..., -1].mean().cpu())
+        valid_count = diagnostics.get("pharmacophore_valid_pair_count")
+        if valid_count is not None:
+            self.values["valid_pair_count"].append(
+                valid_count.detach().float().mean().cpu()
+            )
+        selection_indices = diagnostics.get("pharmacophore_selection_indices")
+        selection_mask = diagnostics.get("pharmacophore_selection_mask")
+        if selection_indices is not None and selection_mask is not None:
+            real_mask = selection_mask[..., :selection_indices.size(-1)].detach()
+            indices = selection_indices.detach()
+            if real_mask.any():
+                selected_positions = indices[real_mask].float()
+                self.values["selected_original_position_mean"].append(
+                    selected_positions.mean().cpu()
+                )
+                self.values["fixed128_topk_overlap"].append(
+                    (selected_positions < 128).float().mean().cpu()
+                )
+        gate = diagnostics.get("pharmacophore_gate")
+        if gate is not None:
+            gate = gate.detach().float().squeeze(-1)
+            self.values["gate_mean"].append(gate.mean().cpu())
+            self.values["gate_std"].append(gate.std(unbiased=False).cpu())
+            class_sum = gate.sum(dim=0).cpu()
+            self.gate_sum_by_class = (
+                class_sum if self.gate_sum_by_class is None
+                else self.gate_sum_by_class + class_sum
+            )
+            self.gate_count_by_class += gate.size(0)
+        drug_selection = diagnostics.get("pharmacophore_drug_selection")
+        if drug_selection is not None:
+            self.values["valid_pair_count"].append(
+                drug_selection["pair_mask"][..., :-1]
+                .detach()
+                .float()
+                .sum(dim=-1)
+                .mean()
+                .cpu()
+            )
+            num_classes = drug_selection["selected_types_a"].size(1)
+            for side in ("a", "b"):
+                source_types = drug_selection[f"source_types_{side}"].detach().cpu()
+                source_mask = drug_selection[f"source_mask_{side}"].detach().cpu()
+                source_count = torch.bincount(
+                    source_types[source_mask], minlength=6
+                ).double()
+                self.drug_type_available += source_count * num_classes
+                selected_types = drug_selection[f"selected_types_{side}"].detach().cpu()
+                selected_valid = drug_selection[f"valid_{side}"].detach().cpu()
+                self.drug_type_selected += torch.bincount(
+                    selected_types[selected_valid], minlength=6
+                ).double()
+
+    def summarize(self):
+        summary = {
+            name: float(torch.stack(values).mean())
+            for name, values in self.values.items()
+            if values
+        }
+        if self.gate_sum_by_class is not None and self.gate_count_by_class:
+            summary["gate_mean_by_class"] = (
+                self.gate_sum_by_class / self.gate_count_by_class
+            ).tolist()
+        if self.drug_type_available.sum() > 0:
+            summary["drug_topk_type_retention"] = (
+                self.drug_type_selected / self.drug_type_available.clamp_min(1)
+            ).tolist()
+        return summary
 
 
 def train_model(model, datasets, cfg):
@@ -75,21 +171,40 @@ def train_model(model, datasets, cfg):
     eval_interval = cfg.get('eval_interval', 1)
 
     for epoch in range(cfg.num_epochs):
+        epoch_diagnostics = EvidenceDiagnosticsAccumulator()
         batch_step = 0
         batch_loss = 0
         #train_dataloader.sampler.set_epoch(epoch)
         for step, batch in enumerate(train_dataloader):
+            max_train_steps = cfg.get("max_train_steps_per_epoch", None)
+            if max_train_steps is not None and step >= max_train_steps:
+                break
             t1 = time.time()
             model.train()
             optimizer.zero_grad()
             outputs = model(batch)
             loss = outputs[0]
+            if not torch.isfinite(loss):
+                raise FloatingPointError(
+                    f"Non-finite loss at epoch {epoch + 1}, step {step + 1}: {loss.item()}"
+                )
+            if len(outputs) > 8:
+                epoch_diagnostics.update(outputs[8])
 
             loss.backward()
             optimizer.step()
 
             batch_loss += loss.item()
             batch_step += 1
+            log_interval = cfg.get("log_config", {}).get("interval", 50)
+            if log_interval and (step + 1) % log_interval == 0:
+                logger.info(
+                    "epoch:%d step:%d/%d running_train_loss:%f",
+                    epoch + 1,
+                    step + 1,
+                    len(train_dataloader),
+                    batch_loss / batch_step,
+                )
             
         if (epoch + 1) % eval_interval == 0:
 
@@ -124,6 +239,15 @@ def train_model(model, datasets, cfg):
                 alpha_value = float(alpha.detach().cpu())
                 history['fixed_substructure_alpha'].append(alpha_value)
                 logger.info("fixed_substructure_alpha:%f", alpha_value)
+            diagnostic_summary = epoch_diagnostics.summarize()
+            if diagnostic_summary:
+                diagnostic_summary["epoch"] = epoch + 1
+                diagnostic_path = osp.join(
+                    cfg.work_dir, f"diagnostics_seed{cfg.seednumber}.jsonl"
+                )
+                with open(diagnostic_path, "a", encoding="utf-8") as output_file:
+                    output_file.write(json.dumps(diagnostic_summary) + "\n")
+                logger.info("evidence_diagnostics:%s", diagnostic_summary)
             # print("time",time.time()-t1)
         if (epoch + 1) % 20 == 0:
             #if torch.distributed.get_rank() == 0:
@@ -231,6 +355,8 @@ def evaluate(
                 Val_Evaluation["Top5Acc"]))
         cls_metrics = classification_metrics(preds, gt_emb_ids)
         log_classification_metrics(logger, cls_metrics)
+        if visualize_acc:
+            save_classification_details(preds, gt_emb_ids, cfg, mode)
         logger.info("************************\n")
 
         if return_metrics:
@@ -333,6 +459,31 @@ def log_classification_metrics(logger, metrics):
             metrics["PR-AUC-macro"],
             metrics["PR-AUC-micro"],
         )
+    )
+
+
+def save_classification_details(logits, ids, cfg, mode):
+    predictions = np.argmax(logits, axis=1)
+    labels = np.arange(logits.shape[1])
+    precision, recall, f1, support = precision_recall_fscore_support(
+        ids, predictions, labels=labels, zero_division=0
+    )
+    details = pd.DataFrame(
+        {
+            "class_id": labels,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "support": support,
+        }
+    )
+    details.to_csv(
+        osp.join(cfg.work_dir, f"{mode}_class_metrics_seed{cfg.seednumber}.csv"),
+        index=False,
+    )
+    np.save(
+        osp.join(cfg.work_dir, f"{mode}_confusion_matrix_seed{cfg.seednumber}.npy"),
+        confusion_matrix(ids, predictions, labels=labels),
     )
 
 

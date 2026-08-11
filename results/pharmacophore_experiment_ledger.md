@@ -1,0 +1,61 @@
+# Pharmacophore experiment ledger
+
+## Protocol audit
+
+- Training entry point: `main.py`, which calls `tools.train.train_model`.
+- S0 base chain: `new_s0_reverse_kg*.py` -> `new_s0_reverse_kg.py` ->
+  `zeroddi_reverse_kg_seen.py` -> `zeroddi_reverse_seen.py` -> `zeroddi_seen.py`.
+- S0 files: `data/KnowDDI/drugbank_true_s0/{train,val,test}.csv` with
+  429137 / 61234 / 122814 rows and 197 classes.
+- Seed: 42; optimizer: Adam; learning rate: 0.0001; batch size: 128;
+  standard full run: 100 epochs.
+- Model selection uses the complete validation split and compares Macro-F1,
+  then Kappa and ACC when Macro-F1 differs by less than 0.001.
+- Test is not invoked by the training path. It is reserved for a selected
+  validation checkpoint via the explicit evaluation path.
+- Repository split configs are literally named `new_s0_reverse_kg.py`,
+  `new_s1_reverse_kg.py`, and `new_s2_reverse_kg.py`, backed by directories
+  `drugbank_true_s0`, `drugbank_true_s1`, and `drugbank_true_s2`. There is no
+  literal S3 config in the checked-out repository; the requested S2/S3 naming
+  must be mapped from authoritative project provenance before cross-split runs.
+
+## Historical test references supplied with the task
+
+| ID | Seed | ACC | Kappa | Macro-F1 | Configuration |
+|---|---:|---:|---:|---:|---|
+| B0 | 42 | 0.927252 | 0.920359 | 0.840984 | Original best model |
+| P0 | 42 | 0.925631 | 0.918534 | 0.843648 | 128, sum, no gate |
+| P4 | 42 | 0.920547 | 0.913024 | 0.833668 | 512, mean, no gate |
+| P5 | 42 | 0.920433 | 0.912914 | 0.843138 | 512, mean, gate |
+
+These are historical references only and are not used to tune against the test
+set.
+
+## S0 coverage diagnostics
+
+Full report: `pharmacophore_coverage_s0.json`.
+
+- 2151 valid drugs; median 12 and mean 14.08 pharmacophores per drug.
+- 613185 drug pairs; median 133, mean 177.65, p95 441, maximum 28424 pairs.
+- Fraction above 64 / 128 / 144 / 256 / 512 pairs:
+  83.11% / 52.61% / 44.58% / 16.81% / 3.52%.
+- Mean node coverage of a fixed row-major prefix at 128 / 256 / 512 pairs:
+  88.08% / 95.04% / 97.05%.
+- Mean pharmacophore-type coverage at 128 / 256 / 512 pairs:
+  95.13% / 96.91% / 97.41%.
+
+## Experiment status
+
+Structure experiment names are always written as Struct-S1, Struct-S3, and
+Struct-S4 so they cannot be confused with dataset split names.
+
+| Experiment | State | Notes |
+|---|---|---|
+| P1: 128 mean no gate | 5-epoch debug running | GPU 4, seed 42 |
+| P2: 512 sum no gate | 5-epoch debug running | GPU 5, seed 42 |
+| P3: 128 sum gate | 5-epoch debug running | GPU 6, seed 42 |
+| Struct-S1 | implemented, CPU smoke passed | Formal run waits for stage one |
+| Struct-S3 | implemented, CPU smoke passed | Formal config waits for stage-one winner |
+| Struct-S4 | implemented, CPU smoke passed | Learnable alpha initialized at 0 |
+| T2-64 / T3-128 / T2-256 | implemented, CPU smoke passed | Candidate-specific pair Top-K |
+| D3-12 / D3-16 | GPU debugging | Candidate-specific per-drug Top-K |

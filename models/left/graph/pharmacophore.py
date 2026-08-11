@@ -286,6 +286,36 @@ class PharmacophorePairEncoder(nn.Module):
             mask[idx, :length] = True
         return output, mask
 
+    def pool_drug_batch(self, drug_batch, drug_features):
+        """Return padded per-drug pharmacophore nodes for DDIE-first selection."""
+        ptr = drug_batch.ptr.detach().cpu().tolist()
+        pooled = []
+        for batch_idx, features in enumerate(drug_features):
+            nodes, type_ids = self._pool_one_drug(
+                drug_batch.node_representation[ptr[batch_idx]:ptr[batch_idx + 1]],
+                features,
+            )
+            pooled.append((nodes, type_ids))
+
+        max_len = max([nodes.size(0) for nodes, _ in pooled] + [1])
+        nodes_out = drug_batch.node_representation.new_zeros(
+            len(pooled), max_len, self.atom_dim
+        )
+        types_out = torch.zeros(
+            len(pooled), max_len, dtype=torch.long, device=nodes_out.device
+        )
+        mask = torch.zeros(
+            len(pooled), max_len, dtype=torch.bool, device=nodes_out.device
+        )
+        for batch_idx, (nodes, type_ids) in enumerate(pooled):
+            length = nodes.size(0)
+            if length == 0:
+                continue
+            nodes_out[batch_idx, :length] = nodes
+            types_out[batch_idx, :length] = type_ids
+            mask[batch_idx, :length] = True
+        return nodes_out, types_out, mask
+
     def _forward_batched_pair_mlp(self, drug_a_batch, drug_b_batch, drug_a_features, drug_b_features):
         batch_size = len(drug_a_features)
         ptr_a = drug_a_batch.ptr.detach().cpu().tolist()

@@ -3,6 +3,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 
 def pool_event_tokens(event_tokens):
@@ -86,53 +87,73 @@ class DDIEGuidedEvidenceSelector(nn.Module):
         query = self.query(event_repr).unsqueeze(0).expand(batch_size, -1, -1)
         key = self.key(evidence_tokens)
         value = self.value(evidence_tokens)
-        scores = torch.matmul(query, key.transpose(1, 2)) / math.sqrt(self.hidden_dim)
-        scores = scores.masked_fill(
-            ~evidence_mask.unsqueeze(1), torch.finfo(scores.dtype).min
-        )
-
         selected_count = min(int(top_k), num_evidence)
-        top_scores, top_indices = torch.topk(scores, selected_count, dim=-1)
-        expanded_mask = evidence_mask.unsqueeze(1).expand(-1, event_repr.size(0), -1)
-        top_valid = torch.gather(expanded_mask, 2, top_indices)
-        expanded_value = value.unsqueeze(1).expand(-1, event_repr.size(0), -1, -1)
-        top_values = torch.gather(
-            expanded_value,
-            2,
-            top_indices.unsqueeze(-1).expand(-1, -1, -1, value.size(-1)),
-        )
-
         if self.use_null_evidence:
             null = self.null_evidence.expand(batch_size, -1, -1)
             null_key = self.key(null)
-            null_value = self.value(null).unsqueeze(1).expand(
-                -1, event_repr.size(0), -1, -1
-            )
-            null_scores = torch.matmul(query, null_key.transpose(1, 2))
-            null_scores = null_scores / math.sqrt(self.hidden_dim)
-            top_scores = torch.cat([top_scores, null_scores], dim=-1)
-            top_values = torch.cat([top_values, null_value], dim=2)
-            top_valid = torch.cat(
-                [
-                    top_valid,
-                    torch.ones(
-                        batch_size,
-                        event_repr.size(0),
-                        1,
-                        dtype=torch.bool,
-                        device=evidence_tokens.device,
-                    ),
-                ],
-                dim=-1,
-            )
+            null_value = self.value(null)
 
-        top_scores = top_scores.masked_fill(
-            ~top_valid, torch.finfo(top_scores.dtype).min
+        selected_chunks = []
+        attention_chunks = []
+        index_chunks = []
+        valid_chunks = []
+        candidate_chunk_size = 16
+        for start in range(0, event_repr.size(0), candidate_chunk_size):
+            end = min(start + candidate_chunk_size, event_repr.size(0))
+            chunk_query = query[:, start:end]
+            scores = torch.matmul(chunk_query, key.transpose(1, 2))
+            scores = scores / math.sqrt(self.hidden_dim)
+            scores = scores.masked_fill(
+                ~evidence_mask.unsqueeze(1), torch.finfo(scores.dtype).min
+            )
+            top_scores, top_indices = torch.topk(scores, selected_count, dim=-1)
+            expanded_mask = evidence_mask.unsqueeze(1).expand(-1, end - start, -1)
+            top_valid = torch.gather(expanded_mask, 2, top_indices)
+            expanded_value = value.unsqueeze(1).expand(-1, end - start, -1, -1)
+            top_values = torch.gather(
+                expanded_value,
+                2,
+                top_indices.unsqueeze(-1).expand(-1, -1, -1, value.size(-1)),
+            )
+            if self.use_null_evidence:
+                null_scores = torch.matmul(chunk_query, null_key.transpose(1, 2))
+                null_scores = null_scores / math.sqrt(self.hidden_dim)
+                top_scores = torch.cat([top_scores, null_scores], dim=-1)
+                top_values = torch.cat(
+                    [
+                        top_values,
+                        null_value.unsqueeze(1).expand(-1, end - start, -1, -1),
+                    ],
+                    dim=2,
+                )
+                top_valid = torch.cat(
+                    [
+                        top_valid,
+                        torch.ones(
+                            batch_size,
+                            end - start,
+                            1,
+                            dtype=torch.bool,
+                            device=evidence_tokens.device,
+                        ),
+                    ],
+                    dim=-1,
+                )
+            top_scores = top_scores.masked_fill(
+                ~top_valid, torch.finfo(top_scores.dtype).min
+            )
+            attention = F.softmax(top_scores, dim=-1).masked_fill(~top_valid, 0.0)
+            selected = torch.matmul(attention.unsqueeze(-2), top_values).squeeze(-2)
+            selected_chunks.append(selected)
+            attention_chunks.append(attention)
+            index_chunks.append(top_indices)
+            valid_chunks.append(top_valid)
+        return (
+            torch.cat(selected_chunks, dim=1),
+            torch.cat(attention_chunks, dim=1),
+            torch.cat(index_chunks, dim=1),
+            torch.cat(valid_chunks, dim=1),
         )
-        attention = F.softmax(top_scores, dim=-1)
-        attention = attention.masked_fill(~top_valid, 0.0)
-        selected = torch.matmul(attention.unsqueeze(-2), top_values).squeeze(-2)
-        return selected, attention, top_indices, top_valid
 
 
 class KGEvidenceFeatureEncoder(nn.Module):
@@ -166,6 +187,186 @@ class KGEvidenceFeatureEncoder(nn.Module):
         for index, embedding in enumerate(self.embeddings):
             encoded = encoded + embedding(features[..., index].long())
         return self.dropout(self.norm(encoded))
+
+
+class CandidateSpecificDrugPairSelector(nn.Module):
+    """Select each drug's pharmacophores per DDIE, then encode their product."""
+
+    def __init__(
+        self,
+        atom_dim,
+        event_dim,
+        pair_dim,
+        output_dim,
+        top_k,
+        type_dim=32,
+        num_types=6,
+        dropout=0.1,
+        candidate_chunk_size=8,
+        use_null_evidence=True,
+    ):
+        super().__init__()
+        self.top_k = int(top_k)
+        self.output_dim = output_dim
+        self.candidate_chunk_size = int(candidate_chunk_size)
+        self.use_null_evidence = use_null_evidence
+        self.query = nn.Linear(event_dim, output_dim)
+        self.node_key = nn.Linear(atom_dim, output_dim)
+        self.type_embedding = nn.Embedding(num_types, type_dim)
+        self.pair_mlp = nn.Sequential(
+            nn.Linear(atom_dim * 4 + type_dim * 2, pair_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(pair_dim, pair_dim),
+        )
+        self.pair_norm = nn.LayerNorm(pair_dim)
+        self.pair_key = nn.Linear(pair_dim, output_dim)
+        self.pair_value = nn.Linear(pair_dim, output_dim)
+        if self.use_null_evidence:
+            self.null_pair = nn.Parameter(torch.zeros(1, 1, pair_dim))
+
+    def _top_nodes(self, query, nodes, mask):
+        scores = torch.matmul(query, self.node_key(nodes).transpose(1, 2))
+        scores = scores / math.sqrt(self.output_dim)
+        scores = scores.masked_fill(
+            ~mask.unsqueeze(1), torch.finfo(scores.dtype).min
+        )
+        count = min(self.top_k, nodes.size(1))
+        _, indices = torch.topk(scores, count, dim=-1)
+        valid = torch.gather(
+            mask.unsqueeze(1).expand(-1, query.size(1), -1), 2, indices
+        )
+        return indices, valid
+
+    @staticmethod
+    def _gather_candidate(values, indices):
+        expanded = values.unsqueeze(1).expand(-1, indices.size(1), -1, *values.shape[2:])
+        gather_index = indices
+        for _ in values.shape[2:]:
+            gather_index = gather_index.unsqueeze(-1)
+        gather_index = gather_index.expand(
+            *indices.shape, *values.shape[2:]
+        )
+        return torch.gather(expanded, 2, gather_index)
+
+    def _encode_chunk(self, chunk_query, left, right, left_types, right_types, pair_valid):
+        left_type = self.type_embedding(left_types)
+        right_type = self.type_embedding(right_types)
+        pair_left = left.unsqueeze(3).expand(-1, -1, -1, right.size(2), -1)
+        pair_right = right.unsqueeze(2).expand(-1, -1, left.size(2), -1, -1)
+        type_left = left_type.unsqueeze(3).expand(-1, -1, -1, right.size(2), -1)
+        type_right = right_type.unsqueeze(2).expand(-1, -1, left.size(2), -1, -1)
+        pair_input = torch.cat(
+            [
+                pair_left,
+                pair_right,
+                pair_left * pair_right,
+                torch.abs(pair_left - pair_right),
+                type_left,
+                type_right,
+            ],
+            dim=-1,
+        )
+        pair_shape = pair_input.shape[:-1]
+        pair_tokens = self.pair_norm(self.pair_mlp(pair_input)).reshape(
+            pair_shape[0], pair_shape[1], -1, self.pair_mlp[-1].out_features
+        )
+        pair_scores = (chunk_query.unsqueeze(2) * self.pair_key(pair_tokens)).sum(dim=-1)
+        pair_scores = pair_scores / math.sqrt(self.output_dim)
+        pair_values = self.pair_value(pair_tokens)
+        if self.use_null_evidence:
+            null_pair = self.null_pair.expand(left.size(0), -1, -1)
+            null_key = self.pair_key(null_pair).unsqueeze(1)
+            null_value = self.pair_value(null_pair).unsqueeze(1).expand(
+                -1, chunk_query.size(1), -1, -1
+            )
+            null_score = (chunk_query.unsqueeze(2) * null_key).sum(dim=-1)
+            null_score = null_score / math.sqrt(self.output_dim)
+            pair_scores = torch.cat([pair_scores, null_score], dim=-1)
+            pair_values = torch.cat([pair_values, null_value], dim=2)
+        pair_scores = pair_scores.masked_fill(
+            ~pair_valid, torch.finfo(pair_scores.dtype).min
+        )
+        attention = F.softmax(pair_scores, dim=-1).masked_fill(~pair_valid, 0.0)
+        selected = torch.matmul(attention.unsqueeze(-2), pair_values).squeeze(-2)
+        return selected, attention
+
+    def forward(
+        self,
+        event_tokens,
+        nodes_a,
+        types_a,
+        mask_a,
+        nodes_b,
+        types_b,
+        mask_b,
+    ):
+        event_repr = pool_event_tokens(event_tokens)
+        query = self.query(event_repr).unsqueeze(0).expand(nodes_a.size(0), -1, -1)
+        indices_a, valid_a = self._top_nodes(query, nodes_a, mask_a)
+        indices_b, valid_b = self._top_nodes(query, nodes_b, mask_b)
+        selected_a = self._gather_candidate(nodes_a, indices_a)
+        selected_b = self._gather_candidate(nodes_b, indices_b)
+        selected_types_a = self._gather_candidate(types_a.unsqueeze(-1), indices_a).squeeze(-1)
+        selected_types_b = self._gather_candidate(types_b.unsqueeze(-1), indices_b).squeeze(-1)
+
+        selected_chunks = []
+        attention_chunks = []
+        pair_mask_chunks = []
+        num_candidates = event_repr.size(0)
+        for start in range(0, num_candidates, self.candidate_chunk_size):
+            end = min(start + self.candidate_chunk_size, num_candidates)
+            left = selected_a[:, start:end]
+            right = selected_b[:, start:end]
+            pair_valid = (
+                valid_a[:, start:end].unsqueeze(-1)
+                & valid_b[:, start:end].unsqueeze(-2)
+            ).reshape(left.size(0), left.size(1), -1)
+            if self.use_null_evidence:
+                pair_valid = torch.cat(
+                    [
+                        pair_valid,
+                        torch.ones(
+                            nodes_a.size(0),
+                            end - start,
+                            1,
+                            dtype=torch.bool,
+                            device=nodes_a.device,
+                        ),
+                    ],
+                    dim=-1,
+                )
+            encode_args = (
+                query[:, start:end],
+                left,
+                right,
+                selected_types_a[:, start:end],
+                selected_types_b[:, start:end],
+                pair_valid,
+            )
+            if self.training:
+                selected, attention = checkpoint(self._encode_chunk, *encode_args)
+            else:
+                selected, attention = self._encode_chunk(*encode_args)
+            selected_chunks.append(selected)
+            attention_chunks.append(attention)
+            pair_mask_chunks.append(pair_valid)
+
+        return {
+            "selected": torch.cat(selected_chunks, dim=1),
+            "attention": torch.cat(attention_chunks, dim=1),
+            "pair_mask": torch.cat(pair_mask_chunks, dim=1),
+            "indices_a": indices_a,
+            "indices_b": indices_b,
+            "valid_a": valid_a,
+            "valid_b": valid_b,
+            "selected_types_a": selected_types_a,
+            "selected_types_b": selected_types_b,
+            "source_types_a": types_a,
+            "source_types_b": types_b,
+            "source_mask_a": mask_a,
+            "source_mask_b": mask_b,
+        }
 
 
 class CandidateMatchingHead(nn.Module):
@@ -224,6 +425,9 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_hidden_dim=None,
         use_pharmacophore_gate=False,
         pharmacophore_top_k=None,
+        pharmacophore_drug_top_k=None,
+        pharmacophore_type_dim=32,
+        pharmacophore_candidate_chunk_size=8,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -239,6 +443,11 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         self.pharmacophore_hidden_dim = pharmacophore_hidden_dim or hidden_dim
         self.use_pharmacophore_gate = use_pharmacophore_gate
         self.pharmacophore_top_k = pharmacophore_top_k
+        self.pharmacophore_drug_top_k = pharmacophore_drug_top_k
+        if pharmacophore_top_k is not None and pharmacophore_drug_top_k is not None:
+            raise ValueError(
+                "pair-level and drug-level pharmacophore Top-K are mutually exclusive"
+            )
         if self.use_pharmacophore_gate and not self.use_pharmacophore_evidence:
             raise ValueError(
                 "use_pharmacophore_gate requires use_pharmacophore_evidence=True"
@@ -265,12 +474,25 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                 use_null_evidence=use_null_evidence,
             )
         if self.use_pharmacophore_evidence:
-            self.pharmacophore_selector = DDIEGuidedEvidenceSelector(
-                evidence_dim=pharmacophore_evidence_dim,
-                event_dim=event_dim,
-                hidden_dim=self.pharmacophore_hidden_dim,
-                use_null_evidence=use_null_evidence,
-            )
+            if self.pharmacophore_drug_top_k is not None:
+                self.pharmacophore_drug_selector = CandidateSpecificDrugPairSelector(
+                    atom_dim=pharmacophore_evidence_dim,
+                    event_dim=event_dim,
+                    pair_dim=pharmacophore_evidence_dim,
+                    output_dim=self.pharmacophore_hidden_dim,
+                    top_k=self.pharmacophore_drug_top_k,
+                    type_dim=pharmacophore_type_dim,
+                    dropout=dropout,
+                    candidate_chunk_size=pharmacophore_candidate_chunk_size,
+                    use_null_evidence=use_null_evidence,
+                )
+            else:
+                self.pharmacophore_selector = DDIEGuidedEvidenceSelector(
+                    evidence_dim=pharmacophore_evidence_dim,
+                    event_dim=event_dim,
+                    hidden_dim=self.pharmacophore_hidden_dim,
+                    use_null_evidence=use_null_evidence,
+                )
             if self.use_pharmacophore_gate:
                 self.pharmacophore_gate = nn.Sequential(
                     nn.Linear(
@@ -317,6 +539,12 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         kg_evidence_mask=None,
         pharmacophore_evidence_tokens=None,
         pharmacophore_evidence_mask=None,
+        pharmacophore_drug_a_nodes=None,
+        pharmacophore_drug_a_types=None,
+        pharmacophore_drug_a_mask=None,
+        pharmacophore_drug_b_nodes=None,
+        pharmacophore_drug_b_types=None,
+        pharmacophore_drug_b_mask=None,
     ):
         if self.use_substructure_evidence:
             if evidence_tokens is None:
@@ -354,9 +582,35 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_attention = None
         pharmacophore_selection_indices = None
         pharmacophore_selection_mask = None
+        pharmacophore_drug_selection = None
         pharmacophore_gate = None
         if self.use_pharmacophore_evidence:
-            if pharmacophore_evidence_tokens is None:
+            if self.pharmacophore_drug_top_k is not None:
+                required = (
+                    pharmacophore_drug_a_nodes,
+                    pharmacophore_drug_a_types,
+                    pharmacophore_drug_a_mask,
+                    pharmacophore_drug_b_nodes,
+                    pharmacophore_drug_b_types,
+                    pharmacophore_drug_b_mask,
+                )
+                if any(value is None for value in required):
+                    raise ValueError(
+                        "drug-level pharmacophore Top-K requires both drugs' nodes, types, and masks"
+                    )
+                pharmacophore_drug_selection = self.pharmacophore_drug_selector(
+                    event_tokens,
+                    pharmacophore_drug_a_nodes,
+                    pharmacophore_drug_a_types,
+                    pharmacophore_drug_a_mask,
+                    pharmacophore_drug_b_nodes,
+                    pharmacophore_drug_b_types,
+                    pharmacophore_drug_b_mask,
+                )
+                pharmacophore_selected = pharmacophore_drug_selection["selected"]
+                pharmacophore_attention = pharmacophore_drug_selection["attention"]
+                pharmacophore_selection_mask = pharmacophore_drug_selection["pair_mask"]
+            elif pharmacophore_evidence_tokens is None:
                 event_repr = pool_event_tokens(event_tokens)
                 pharmacophore_selected = selected.new_zeros(
                     selected.size(0),
@@ -425,6 +679,12 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             "pharmacophore_attention": pharmacophore_attention,
             "pharmacophore_selection_indices": pharmacophore_selection_indices,
             "pharmacophore_selection_mask": pharmacophore_selection_mask,
+            "pharmacophore_drug_selection": pharmacophore_drug_selection,
+            "pharmacophore_valid_pair_count": (
+                pharmacophore_evidence_mask.sum(dim=-1)
+                if pharmacophore_evidence_mask is not None
+                else None
+            ),
             "pharmacophore_gate": pharmacophore_gate,
             "evidence_gate": evidence_gate,
         }

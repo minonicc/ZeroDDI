@@ -208,6 +208,53 @@ def main():
     )
     print("candidate-specific pharmacophore top-k smoke test ok")
 
+    drug_top_k_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_pharmacophore_evidence=True,
+        pharmacophore_evidence_dim=evidence_dim,
+        pharmacophore_drug_top_k=3,
+        pharmacophore_candidate_chunk_size=2,
+    )
+    drug_a_nodes = torch.randn(batch_size, 5, evidence_dim)
+    drug_b_nodes = torch.randn(batch_size, 4, evidence_dim)
+    drug_a_types = torch.randint(0, 6, (batch_size, 5))
+    drug_b_types = torch.randint(0, 6, (batch_size, 4))
+    drug_a_mask = torch.ones(batch_size, 5, dtype=torch.bool)
+    drug_b_mask = torch.ones(batch_size, 4, dtype=torch.bool)
+    drug_a_mask[0, 2:] = False
+    drug_b_mask[0, 1:] = False
+    drug_a_mask[1, :] = False
+    drug_b_mask[1, :] = False
+    drug_top_k_outputs = drug_top_k_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels,
+        pharmacophore_drug_a_nodes=drug_a_nodes,
+        pharmacophore_drug_a_types=drug_a_types,
+        pharmacophore_drug_a_mask=drug_a_mask,
+        pharmacophore_drug_b_nodes=drug_b_nodes,
+        pharmacophore_drug_b_types=drug_b_types,
+        pharmacophore_drug_b_mask=drug_b_mask,
+    )
+    drug_top_k_outputs["loss"].backward()
+    drug_selection = drug_top_k_outputs["pharmacophore_drug_selection"]
+    assert drug_selection["indices_a"].shape == (batch_size, num_events, 3)
+    assert drug_selection["indices_b"].shape == (batch_size, num_events, 3)
+    assert drug_selection["pair_mask"].shape == (batch_size, num_events, 10)
+    assert drug_selection["pair_mask"][0, :, :-1].sum(dim=-1).eq(2).all()
+    assert not drug_selection["pair_mask"][1, :, :-1].any()
+    assert drug_selection["pair_mask"][:, :, -1].all()
+    assert torch.allclose(
+        drug_top_k_outputs["pharmacophore_attention"].sum(dim=-1),
+        torch.ones(batch_size, num_events),
+        atol=1e-6,
+    )
+    print("candidate-specific per-drug pharmacophore top-k smoke test ok")
+
 
 if __name__ == "__main__":
     main()

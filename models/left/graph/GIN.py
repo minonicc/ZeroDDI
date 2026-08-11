@@ -352,6 +352,7 @@ class GNN_model(nn.Module):
         deduplicate_drugs_in_batch=False,
         cache_drug_graphs_on_device=False,
         batch_pharmacophore_pair_mlp=False,
+        pharmacophore_selection_mode="pairs",
     ):
         super().__init__()
         """
@@ -369,6 +370,11 @@ class GNN_model(nn.Module):
                 "substructure query/base branches require use_sub=True"
             )
         self.use_pharmacophore_pairs = use_pharmacophore_pairs
+        if pharmacophore_selection_mode not in {"pairs", "drug_topk"}:
+            raise ValueError(
+                "pharmacophore_selection_mode must be 'pairs' or 'drug_topk'"
+            )
+        self.pharmacophore_selection_mode = pharmacophore_selection_mode
         self.deduplicate_drugs_in_batch = deduplicate_drugs_in_batch
         self.cache_drug_graphs_on_device = cache_drug_graphs_on_device
 
@@ -555,16 +561,32 @@ class GNN_model(nn.Module):
                     unique_drug_batch,
                     drug2_indices,
                 )
-            pharmacophore_pairs, pharmacophore_mask = self.pharmacophore_pair_encoder(
-                drug1_batch,
-                drug2_batch,
-                drug1_features,
-                drug2_features,
-            )
-            pharmacophore_evidence = {
-                "tokens": pharmacophore_pairs,
-                "mask": pharmacophore_mask,
-            }
+            if self.pharmacophore_selection_mode == "drug_topk":
+                nodes1, types1, mask1 = self.pharmacophore_pair_encoder.pool_drug_batch(
+                    drug1_batch, drug1_features
+                )
+                nodes2, types2, mask2 = self.pharmacophore_pair_encoder.pool_drug_batch(
+                    drug2_batch, drug2_features
+                )
+                pharmacophore_evidence = {
+                    "drug_a_nodes": nodes1,
+                    "drug_a_types": types1,
+                    "drug_a_mask": mask1,
+                    "drug_b_nodes": nodes2,
+                    "drug_b_types": types2,
+                    "drug_b_mask": mask2,
+                }
+            else:
+                pharmacophore_pairs, pharmacophore_mask = self.pharmacophore_pair_encoder(
+                    drug1_batch,
+                    drug2_batch,
+                    drug1_features,
+                    drug2_features,
+                )
+                pharmacophore_evidence = {
+                    "tokens": pharmacophore_pairs,
+                    "mask": pharmacophore_mask,
+                }
         else:
             pharmacophore_evidence = None
 

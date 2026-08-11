@@ -45,6 +45,11 @@ def parse_args():
         '--seednumber', default=42, help='number of seeds')
     parser.add_argument(
         '--max-epochs', type=int, help='override num_epochs from the config')
+    parser.add_argument(
+        '--max-train-steps',
+        type=int,
+        help='limit optimizer steps per epoch for debugging only',
+    )
 
     group_gpus = parser.add_mutually_exclusive_group()
     group_gpus.add_argument(
@@ -112,6 +117,10 @@ def main():
         if args.max_epochs <= 0:
             raise ValueError('--max-epochs must be positive')
         cfg.num_epochs = args.max_epochs
+    if args.max_train_steps is not None:
+        if args.max_train_steps <= 0:
+            raise ValueError('--max-train-steps must be positive')
+        cfg.max_train_steps_per_epoch = args.max_train_steps
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
