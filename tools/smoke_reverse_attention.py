@@ -104,6 +104,47 @@ def main():
     kg_feature_outputs["loss"].backward()
     print("kg feature token smoke test ok")
 
+    num_nodes = 11
+    num_edges = 24
+    graph_mask = torch.ones(batch_size, num_nodes, dtype=torch.bool)
+    graph = {
+        "node_ids": torch.randint(1, 16, (batch_size, num_nodes)),
+        "node_types": torch.randint(1, 6, (batch_size, num_nodes)),
+        "distance_to_a": torch.randint(1, 6, (batch_size, num_nodes)),
+        "distance_to_b": torch.randint(1, 6, (batch_size, num_nodes)),
+        "node_mask": graph_mask,
+        "edge_index": torch.randint(0, num_nodes, (batch_size, 2, num_edges)),
+        "edge_relations": torch.randint(1, 10, (batch_size, num_edges)),
+        "edge_mask": torch.ones(batch_size, num_edges, dtype=torch.bool),
+    }
+    kg_graph_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_kg_evidence=True,
+        kg_evidence_dim=evidence_dim,
+        kg_hidden_dim=hidden_dim,
+        kg_feature_vocab_sizes={
+            "entity": 16,
+            "type": 6,
+            "relation": 10,
+            "distance": 6,
+        },
+        kg_graph_evidence=True,
+    )
+    kg_graph_outputs = kg_graph_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels=labels,
+        kg_evidence_tokens=graph,
+        kg_evidence_mask=graph_mask,
+    )
+    kg_graph_outputs["loss"].backward()
+    print("kg edge-aware GraphSAGE smoke test ok")
+    print("kg_graph_attention:", tuple(kg_graph_outputs["kg_attention"].shape))
+
 
 if __name__ == "__main__":
     main()

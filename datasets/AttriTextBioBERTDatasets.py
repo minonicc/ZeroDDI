@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 import json
+import sqlite3
+import zlib
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
@@ -15,6 +17,11 @@ from .Mesh_similarity import MeshText
 @DATASETS.register_module()
 class AttriTextBioBERTDataset(Dataset):
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_kg_sqlite_connection"] = None
+        return state
+
     def __init__(self,
                  Allfilename,
                  mode,
@@ -28,6 +35,8 @@ class AttriTextBioBERTDataset(Dataset):
                  bert_vision="biobert-base-cased-v1.2",
                  kg_pair_file=None,
                  kg_max_tokens=128,
+                 kg_max_nodes=None,
+                 kg_max_edges=None,
                  ):
       
         self.Allfilename = Allfilename
@@ -40,6 +49,8 @@ class AttriTextBioBERTDataset(Dataset):
         self.zsl_mode = zsl_mode
         self.kg_pair_file = kg_pair_file
         self.kg_max_tokens = kg_max_tokens
+        self.kg_max_nodes = kg_max_nodes or kg_max_tokens
+        self.kg_max_edges = kg_max_edges or (self.kg_max_nodes * 4)
         self.kg_pair_tokens, self.kg_feature_vocab_sizes = self._load_kg_pair_file()
 
         self.bert_vision = bert_vision
@@ -57,19 +68,48 @@ class AttriTextBioBERTDataset(Dataset):
         if not os.path.exists(self.kg_pair_file):
             raise FileNotFoundError(f"KG pair file not found: {self.kg_pair_file}")
 
-        with open(self.kg_pair_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("pairs", {}), data.get("feature_vocab_sizes")
+        self._kg_sqlite_connection = None
+        if self.kg_pair_file.endswith(".sqlite"):
+            connection = sqlite3.connect(self.kg_pair_file)
+            rows = connection.execute("SELECT key, value FROM metadata").fetchall()
+            connection.close()
+            data = {key: json.loads(value) for key, value in rows}
+            pair_data = True
+        else:
+            with open(self.kg_pair_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            pair_data = data.get("pairs", {})
+        self.kg_format = data.get("format", "flat_tokens_v1")
+        self.kg_distance_vocab_size = data.get("distance_vocab_size")
+        vocab_sizes = data.get("feature_vocab_sizes")
+        if vocab_sizes is not None and self.kg_distance_vocab_size is not None:
+            vocab_sizes = dict(vocab_sizes)
+            vocab_sizes["distance"] = self.kg_distance_vocab_size
+        return pair_data, vocab_sizes
+
+    def _lookup_kg_pair(self, key):
+        if self.kg_pair_file.endswith(".sqlite"):
+            if self._kg_sqlite_connection is None:
+                self._kg_sqlite_connection = sqlite3.connect(self.kg_pair_file)
+            row = self._kg_sqlite_connection.execute(
+                "SELECT graph FROM pairs WHERE pair_key = ?", (key,)
+            ).fetchone()
+            if row is None:
+                return None
+            return json.loads(zlib.decompress(row[0]).decode("utf-8"))
+        return self.kg_pair_tokens.get(key)
 
     def _pair_key(self, drug1, drug2):
         return f"{drug1}||{drug2}"
 
     def _get_kg_evidence(self, drug1, drug2):
+        if getattr(self, "kg_format", "flat_tokens_v1") == "molecbionet_pair_graph_v2":
+            return self._get_kg_graph(drug1, drug2)
         tokens = []
         if self.kg_pair_tokens is not None:
-            tokens = self.kg_pair_tokens.get(self._pair_key(drug1, drug2))
+            tokens = self._lookup_kg_pair(self._pair_key(drug1, drug2))
             if tokens is None:
-                tokens = self.kg_pair_tokens.get(self._pair_key(drug2, drug1), [])
+                tokens = self._lookup_kg_pair(self._pair_key(drug2, drug1)) or []
         tokens = tokens[: self.kg_max_tokens]
         mask = [True] * len(tokens)
 
@@ -81,6 +121,63 @@ class AttriTextBioBERTDataset(Dataset):
         return {
             "tokens": torch.tensor(tokens, dtype=torch.long),
             "mask": torch.tensor(mask, dtype=torch.bool),
+        }
+
+    def _get_kg_graph(self, drug1, drug2):
+        graph = self._lookup_kg_pair(self._pair_key(drug1, drug2))
+        reversed_pair = graph is None
+        if reversed_pair:
+            graph = self._lookup_kg_pair(self._pair_key(drug2, drug1))
+        if graph is None:
+            graph = {
+                "node_ids": [], "node_types": [], "distance_to_a": [],
+                "distance_to_b": [], "edge_index": [[], []], "edge_relations": [],
+            }
+
+        node_ids = list(graph["node_ids"][:self.kg_max_nodes])
+        node_types = list(graph["node_types"][:self.kg_max_nodes])
+        distance_a = list(graph["distance_to_a"][:self.kg_max_nodes])
+        distance_b = list(graph["distance_to_b"][:self.kg_max_nodes])
+        if reversed_pair:
+            distance_a, distance_b = distance_b, distance_a
+
+        node_count = len(node_ids)
+        sources = []
+        targets = []
+        relations = []
+        for source, target, relation in zip(
+            graph["edge_index"][0], graph["edge_index"][1], graph["edge_relations"]
+        ):
+            if source < node_count and target < node_count:
+                sources.append(source)
+                targets.append(target)
+                relations.append(relation)
+                if len(relations) >= self.kg_max_edges:
+                    break
+
+        node_mask = [True] * node_count
+        node_pad = self.kg_max_nodes - node_count
+        node_ids.extend([0] * node_pad)
+        node_types.extend([0] * node_pad)
+        distance_a.extend([0] * node_pad)
+        distance_b.extend([0] * node_pad)
+        node_mask.extend([False] * node_pad)
+
+        edge_count = len(relations)
+        edge_pad = self.kg_max_edges - edge_count
+        sources.extend([0] * edge_pad)
+        targets.extend([0] * edge_pad)
+        relations.extend([0] * edge_pad)
+        edge_mask = [True] * edge_count + [False] * edge_pad
+        return {
+            "node_ids": torch.tensor(node_ids, dtype=torch.long),
+            "node_types": torch.tensor(node_types, dtype=torch.long),
+            "distance_to_a": torch.tensor(distance_a, dtype=torch.long),
+            "distance_to_b": torch.tensor(distance_b, dtype=torch.long),
+            "node_mask": torch.tensor(node_mask, dtype=torch.bool),
+            "edge_index": torch.tensor([sources, targets], dtype=torch.long),
+            "edge_relations": torch.tensor(relations, dtype=torch.long),
+            "edge_mask": torch.tensor(edge_mask, dtype=torch.bool),
         }
 
     def _get_all_embeddings(self):
@@ -231,14 +328,16 @@ class AttriTextBioBERTDataset(Dataset):
         for item in current_dataset:
             embid = self.eventid2embid[int(item[2])]
             sample = [item[0], item[1], embid]
-            if self.kg_pair_tokens is not None:
-                sample.append(self._get_kg_evidence(item[0], item[1]))
             self.new_current_dataset.append(sample)
         return current_all_biogpt_emb, current_all_mesh_emb
 
     def __getitem__(self, index):
+        sample = self.new_current_dataset[index]
+        if self.kg_pair_tokens is not None:
+            sample = list(sample)
+            sample.append(self._get_kg_evidence(sample[0], sample[1]))
         return (
-        self.new_current_dataset[index], self.mode,self.zsl_mode)
+        sample, self.mode,self.zsl_mode)
 
     def __len__(self):
         return len(self.new_current_dataset)

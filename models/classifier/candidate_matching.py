@@ -99,6 +99,85 @@ class KGEvidenceFeatureEncoder(nn.Module):
         return self.dropout(self.norm(encoded))
 
 
+class EdgeAwareGraphSAGE(nn.Module):
+    """One relational mean-aggregation layer for padded pair graphs."""
+
+    def __init__(self, hidden_dim, relation_vocab_size, dropout=0.1):
+        super().__init__()
+        self.relation_embedding = nn.Embedding(
+            relation_vocab_size, hidden_dim, padding_idx=0
+        )
+        self.neighbor = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.relation = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.update = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.norm = nn.LayerNorm(hidden_dim)
+
+    def forward(self, nodes, edge_index, edge_relations, node_mask, edge_mask):
+        batch_size, num_nodes, hidden_dim = nodes.shape
+        sources = edge_index[:, 0].long()
+        targets = edge_index[:, 1].long()
+        source_index = sources.unsqueeze(-1).expand(-1, -1, hidden_dim)
+        source_nodes = torch.gather(nodes, 1, source_index)
+        messages = self.neighbor(source_nodes)
+        messages = messages + self.relation(
+            self.relation_embedding(edge_relations.long())
+        )
+        messages = messages * edge_mask.unsqueeze(-1).to(messages.dtype)
+
+        aggregated = nodes.new_zeros(batch_size, num_nodes, hidden_dim)
+        target_index = targets.unsqueeze(-1).expand(-1, -1, hidden_dim)
+        aggregated.scatter_add_(1, target_index, messages)
+        counts = nodes.new_zeros(batch_size, num_nodes, 1)
+        counts.scatter_add_(1, targets.unsqueeze(-1), edge_mask.unsqueeze(-1).to(nodes.dtype))
+        aggregated = aggregated / counts.clamp_min(1.0)
+
+        updated = self.norm(nodes + self.update(torch.cat([nodes, aggregated], dim=-1)))
+        return updated * node_mask.unsqueeze(-1).to(updated.dtype)
+
+
+class KGEvidenceGraphEncoder(nn.Module):
+    """Encode explicit pair-subgraph nodes and relation-bearing edges."""
+
+    def __init__(self, vocab_sizes, output_dim, dropout=0.1):
+        super().__init__()
+        self.entity_embedding = nn.Embedding(
+            vocab_sizes["entity"], output_dim, padding_idx=0
+        )
+        self.type_embedding = nn.Embedding(
+            vocab_sizes["type"], output_dim, padding_idx=0
+        )
+        self.distance_a_embedding = nn.Embedding(
+            vocab_sizes["distance"], output_dim, padding_idx=0
+        )
+        self.distance_b_embedding = nn.Embedding(
+            vocab_sizes["distance"], output_dim, padding_idx=0
+        )
+        self.input_norm = nn.LayerNorm(output_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.gnn = EdgeAwareGraphSAGE(
+            output_dim, vocab_sizes["relation"], dropout=dropout
+        )
+
+    def forward(self, graph):
+        nodes = self.entity_embedding(graph["node_ids"].long())
+        nodes = nodes + self.type_embedding(graph["node_types"].long())
+        nodes = nodes + self.distance_a_embedding(graph["distance_to_a"].long())
+        nodes = nodes + self.distance_b_embedding(graph["distance_to_b"].long())
+        nodes = self.dropout(self.input_norm(nodes))
+        return self.gnn(
+            nodes,
+            graph["edge_index"],
+            graph["edge_relations"],
+            graph["node_mask"],
+            graph["edge_mask"],
+        )
+
+
 class CandidateMatchingHead(nn.Module):
     """Score each candidate DDIE with DDIE-specific selected drug evidence."""
 
@@ -149,12 +228,14 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         kg_evidence_dim=300,
         kg_hidden_dim=None,
         kg_feature_vocab_sizes=None,
+        kg_graph_evidence=False,
     ):
         super().__init__()
         self.use_evidence_gate = use_evidence_gate
         self.use_kg_evidence = use_kg_evidence
         self.kg_hidden_dim = kg_hidden_dim or hidden_dim
         self.kg_feature_encoder = None
+        self.kg_graph_evidence = kg_graph_evidence
         self.selector = DDIEGuidedEvidenceSelector(
             evidence_dim=evidence_dim,
             event_dim=event_dim,
@@ -163,11 +244,18 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         )
         if self.use_kg_evidence:
             if kg_feature_vocab_sizes is not None:
-                self.kg_feature_encoder = KGEvidenceFeatureEncoder(
-                    vocab_sizes=kg_feature_vocab_sizes,
-                    output_dim=kg_evidence_dim,
-                    dropout=dropout,
-                )
+                if self.kg_graph_evidence:
+                    self.kg_feature_encoder = KGEvidenceGraphEncoder(
+                        vocab_sizes=kg_feature_vocab_sizes,
+                        output_dim=kg_evidence_dim,
+                        dropout=dropout,
+                    )
+                else:
+                    self.kg_feature_encoder = KGEvidenceFeatureEncoder(
+                        vocab_sizes=kg_feature_vocab_sizes,
+                        output_dim=kg_evidence_dim,
+                        dropout=dropout,
+                    )
             self.kg_selector = DDIEGuidedEvidenceSelector(
                 evidence_dim=kg_evidence_dim,
                 event_dim=event_dim,
@@ -214,6 +302,10 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             else:
                 if self.kg_feature_encoder is not None:
                     kg_evidence_tokens = self.kg_feature_encoder(kg_evidence_tokens)
+                if self.kg_graph_evidence:
+                    kg_evidence_mask = kg_evidence_tokens.new_ones(
+                        kg_evidence_tokens.shape[:2], dtype=torch.bool
+                    ) if kg_evidence_mask is None else kg_evidence_mask
                 kg_selected, kg_attention = self.kg_selector(
                     event_tokens,
                     kg_evidence_tokens,

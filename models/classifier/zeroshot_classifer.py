@@ -32,6 +32,7 @@ class classifier(nn.Module):
                  matching_kg_evidence_dim=300,
                  matching_kg_hidden_dim=None,
                  matching_kg_feature_vocab_sizes=None,
+                 matching_kg_graph_evidence=False,
                  semantic_aux_lambda=0.0,
                  use_sign_cls = False,
                  attributlabel=None,
@@ -57,6 +58,7 @@ class classifier(nn.Module):
         self.use_attention = use_attention
         self.matching_mode = matching_mode
         self.matching_use_kg_evidence = matching_use_kg_evidence
+        self.matching_kg_graph_evidence = matching_kg_graph_evidence
         self.semantic_aux_lambda = semantic_aux_lambda
         self.use_sign_cls = use_sign_cls
         self.attributlabel = attributlabel
@@ -98,6 +100,7 @@ class classifier(nn.Module):
                 kg_evidence_dim=matching_kg_evidence_dim,
                 kg_hidden_dim=matching_kg_hidden_dim,
                 kg_feature_vocab_sizes=matching_kg_feature_vocab_sizes,
+                kg_graph_evidence=matching_kg_graph_evidence,
             )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
@@ -210,15 +213,23 @@ class classifier(nn.Module):
         kg_evidence_mask = None
         if kg_evidence is not None:
             if isinstance(kg_evidence, dict):
-                kg_evidence_tokens = kg_evidence.get("tokens")
-                kg_evidence_mask = kg_evidence.get("mask")
+                if self.matching_kg_graph_evidence:
+                    kg_evidence_tokens = kg_evidence
+                    kg_evidence_mask = kg_evidence.get("node_mask")
+                else:
+                    kg_evidence_tokens = kg_evidence.get("tokens")
+                    kg_evidence_mask = kg_evidence.get("mask")
             elif isinstance(kg_evidence, (list, tuple)):
                 kg_evidence_tokens = kg_evidence[0]
                 if len(kg_evidence) > 1:
                     kg_evidence_mask = kg_evidence[1]
             else:
                 kg_evidence_tokens = kg_evidence
-        if kg_evidence_tokens is not None:
+        if isinstance(kg_evidence_tokens, dict):
+            kg_evidence_tokens = {
+                name: value.to(self.device) for name, value in kg_evidence_tokens.items()
+            }
+        elif kg_evidence_tokens is not None:
             kg_evidence_tokens = kg_evidence_tokens.to(self.device)
         if kg_evidence_mask is not None:
             kg_evidence_mask = kg_evidence_mask.to(self.device)
