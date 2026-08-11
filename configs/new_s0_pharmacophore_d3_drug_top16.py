@@ -4,6 +4,7 @@ model = dict(
     leftmodel=dict(
         pharmacophore_selection_mode='drug_topk',
         pharmacophore_pooling='mean',
+        pharmacophore_max_pairs=None,
     ),
     matching_pharmacophore_drug_top_k=16,
 )

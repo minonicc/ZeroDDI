@@ -228,17 +228,26 @@ def main():
     drug_b_mask[0, 1:] = False
     drug_a_mask[1, :] = False
     drug_b_mask[1, :] = False
+    drug_b_count = drug_b_mask.sum(dim=-1)
+    precomputed_pairs = torch.randn(batch_size, 20, evidence_dim)
+    precomputed_pair_mask = torch.zeros(batch_size, 20, dtype=torch.bool)
+    for batch_index in range(batch_size):
+        pair_count = int(drug_a_mask[batch_index].sum() * drug_b_count[batch_index])
+        precomputed_pair_mask[batch_index, :pair_count] = True
     drug_top_k_outputs = drug_top_k_model(
         pair_repr,
         evidence_tokens,
         event_tokens,
         labels,
+        pharmacophore_evidence_tokens=precomputed_pairs,
+        pharmacophore_evidence_mask=precomputed_pair_mask,
         pharmacophore_drug_a_nodes=drug_a_nodes,
         pharmacophore_drug_a_types=drug_a_types,
         pharmacophore_drug_a_mask=drug_a_mask,
         pharmacophore_drug_b_nodes=drug_b_nodes,
         pharmacophore_drug_b_types=drug_b_types,
         pharmacophore_drug_b_mask=drug_b_mask,
+        pharmacophore_drug_b_count=drug_b_count,
     )
     drug_top_k_outputs["loss"].backward()
     drug_selection = drug_top_k_outputs["pharmacophore_drug_selection"]

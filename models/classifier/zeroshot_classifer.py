@@ -263,6 +263,7 @@ class classifier(nn.Module):
                     "drug_b_nodes",
                     "drug_b_types",
                     "drug_b_mask",
+                    "drug_b_count",
                 ):
                     value = pharmacophore_evidence.get(name)
                     if value is not None:

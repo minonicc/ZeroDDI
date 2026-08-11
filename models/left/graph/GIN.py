@@ -568,13 +568,22 @@ class GNN_model(nn.Module):
                 nodes2, types2, mask2 = self.pharmacophore_pair_encoder.pool_drug_batch(
                     drug2_batch, drug2_features
                 )
+                pharmacophore_pairs, pharmacophore_mask = self.pharmacophore_pair_encoder(
+                    drug1_batch,
+                    drug2_batch,
+                    drug1_features,
+                    drug2_features,
+                )
                 pharmacophore_evidence = {
+                    "tokens": pharmacophore_pairs,
+                    "mask": pharmacophore_mask,
                     "drug_a_nodes": nodes1,
                     "drug_a_types": types1,
                     "drug_a_mask": mask1,
                     "drug_b_nodes": nodes2,
                     "drug_b_types": types2,
                     "drug_b_mask": mask2,
+                    "drug_b_count": mask2.sum(dim=-1),
                 }
             else:
                 pharmacophore_pairs, pharmacophore_mask = self.pharmacophore_pair_encoder(

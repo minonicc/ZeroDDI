@@ -13,6 +13,13 @@
   then Kappa and ACC when Macro-F1 differs by less than 0.001.
 - Test is not invoked by the training path. It is reserved for a selected
   validation checkpoint via the explicit evaluation path.
+- The inherited evaluator at commit `bb929c1` used `RandomSampler` together
+  with `drop_last=True`, so every evaluation randomly omitted the final partial
+  batch (50 of 61234 S0 validation rows). The current branch evaluates all rows
+  deterministically. Historical P0/P4/P5 numbers therefore remain useful
+  references but are not bit-for-bit comparable unless their checkpoints are
+  re-evaluated with the corrected evaluator; those checkpoints are not present
+  in this worktree.
 - Repository split configs are literally named `new_s0_reverse_kg.py`,
   `new_s1_reverse_kg.py`, and `new_s2_reverse_kg.py`, backed by directories
   `drugbank_true_s0`, `drugbank_true_s1`, and `drugbank_true_s2`. There is no

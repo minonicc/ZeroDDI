@@ -291,6 +291,40 @@ class CandidateSpecificDrugPairSelector(nn.Module):
         selected = torch.matmul(attention.unsqueeze(-2), pair_values).squeeze(-2)
         return selected, attention
 
+    def _aggregate_precomputed_chunk(
+        self, chunk_query, pair_tokens, linear_indices, pair_valid
+    ):
+        expanded_pairs = pair_tokens.unsqueeze(1).expand(
+            -1, linear_indices.size(1), -1, -1
+        )
+        selected_pairs = torch.gather(
+            expanded_pairs,
+            2,
+            linear_indices.unsqueeze(-1).expand(
+                -1, -1, -1, pair_tokens.size(-1)
+            ),
+        )
+        pair_scores = (
+            chunk_query.unsqueeze(2) * self.pair_key(selected_pairs)
+        ).sum(dim=-1) / math.sqrt(self.output_dim)
+        pair_values = self.pair_value(selected_pairs)
+        if self.use_null_evidence:
+            null_pair = self.null_pair.expand(pair_tokens.size(0), -1, -1)
+            null_score = (
+                chunk_query.unsqueeze(2) * self.pair_key(null_pair).unsqueeze(1)
+            ).sum(dim=-1) / math.sqrt(self.output_dim)
+            null_value = self.pair_value(null_pair).unsqueeze(1).expand(
+                -1, chunk_query.size(1), -1, -1
+            )
+            pair_scores = torch.cat([pair_scores, null_score], dim=-1)
+            pair_values = torch.cat([pair_values, null_value], dim=2)
+        pair_scores = pair_scores.masked_fill(
+            ~pair_valid, torch.finfo(pair_scores.dtype).min
+        )
+        attention = F.softmax(pair_scores, dim=-1).masked_fill(~pair_valid, 0.0)
+        selected = torch.matmul(attention.unsqueeze(-2), pair_values).squeeze(-2)
+        return selected, attention
+
     def forward(
         self,
         event_tokens,
@@ -300,11 +334,33 @@ class CandidateSpecificDrugPairSelector(nn.Module):
         nodes_b,
         types_b,
         mask_b,
+        precomputed_pair_tokens=None,
+        precomputed_pair_mask=None,
+        drug_b_count=None,
     ):
         event_repr = pool_event_tokens(event_tokens)
         query = self.query(event_repr).unsqueeze(0).expand(nodes_a.size(0), -1, -1)
         indices_a, valid_a = self._top_nodes(query, nodes_a, mask_a)
         indices_b, valid_b = self._top_nodes(query, nodes_b, mask_b)
+        if precomputed_pair_tokens is not None:
+            if precomputed_pair_mask is None or drug_b_count is None:
+                raise ValueError(
+                    "precomputed pair tokens require pair mask and drug B counts"
+                )
+            return self._forward_precomputed(
+                query,
+                indices_a,
+                valid_a,
+                indices_b,
+                valid_b,
+                types_a,
+                mask_a,
+                types_b,
+                mask_b,
+                precomputed_pair_tokens,
+                precomputed_pair_mask,
+                drug_b_count,
+            )
         selected_a = self._gather_candidate(nodes_a, indices_a)
         selected_b = self._gather_candidate(nodes_b, indices_b)
         selected_types_a = self._gather_candidate(types_a.unsqueeze(-1), indices_a).squeeze(-1)
@@ -352,6 +408,96 @@ class CandidateSpecificDrugPairSelector(nn.Module):
             attention_chunks.append(attention)
             pair_mask_chunks.append(pair_valid)
 
+        return {
+            "selected": torch.cat(selected_chunks, dim=1),
+            "attention": torch.cat(attention_chunks, dim=1),
+            "pair_mask": torch.cat(pair_mask_chunks, dim=1),
+            "indices_a": indices_a,
+            "indices_b": indices_b,
+            "valid_a": valid_a,
+            "valid_b": valid_b,
+            "selected_types_a": selected_types_a,
+            "selected_types_b": selected_types_b,
+            "source_types_a": types_a,
+            "source_types_b": types_b,
+            "source_mask_a": mask_a,
+            "source_mask_b": mask_b,
+        }
+
+    def _forward_precomputed(
+        self,
+        query,
+        indices_a,
+        valid_a,
+        indices_b,
+        valid_b,
+        types_a,
+        mask_a,
+        types_b,
+        mask_b,
+        pair_tokens,
+        pair_mask,
+        drug_b_count,
+    ):
+        selected_types_a = self._gather_candidate(
+            types_a.unsqueeze(-1), indices_a
+        ).squeeze(-1)
+        selected_types_b = self._gather_candidate(
+            types_b.unsqueeze(-1), indices_b
+        ).squeeze(-1)
+        selected_chunks = []
+        attention_chunks = []
+        pair_mask_chunks = []
+        for start in range(0, query.size(1), self.candidate_chunk_size):
+            end = min(start + self.candidate_chunk_size, query.size(1))
+            linear_indices = (
+                indices_a[:, start:end].unsqueeze(-1)
+                * drug_b_count[:, None, None, None]
+                + indices_b[:, start:end].unsqueeze(-2)
+            ).reshape(query.size(0), end - start, -1)
+            real_valid = (
+                valid_a[:, start:end].unsqueeze(-1)
+                & valid_b[:, start:end].unsqueeze(-2)
+            ).reshape(query.size(0), end - start, -1)
+            safe_indices = linear_indices.clamp_max(pair_tokens.size(1) - 1)
+            selected_pair_mask = torch.gather(
+                pair_mask.unsqueeze(1).expand(-1, end - start, -1),
+                2,
+                safe_indices,
+            )
+            real_valid = real_valid & selected_pair_mask
+            aggregate_mask = real_valid
+            if self.use_null_evidence:
+                aggregate_mask = torch.cat(
+                    [
+                        aggregate_mask,
+                        torch.ones(
+                            query.size(0),
+                            end - start,
+                            1,
+                            dtype=torch.bool,
+                            device=query.device,
+                        ),
+                    ],
+                    dim=-1,
+                )
+            aggregate_args = (
+                query[:, start:end],
+                pair_tokens,
+                safe_indices,
+                aggregate_mask,
+            )
+            if self.training:
+                selected, attention = checkpoint(
+                    self._aggregate_precomputed_chunk, *aggregate_args
+                )
+            else:
+                selected, attention = self._aggregate_precomputed_chunk(
+                    *aggregate_args
+                )
+            selected_chunks.append(selected)
+            attention_chunks.append(attention)
+            pair_mask_chunks.append(aggregate_mask)
         return {
             "selected": torch.cat(selected_chunks, dim=1),
             "attention": torch.cat(attention_chunks, dim=1),
@@ -545,6 +691,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_drug_b_nodes=None,
         pharmacophore_drug_b_types=None,
         pharmacophore_drug_b_mask=None,
+        pharmacophore_drug_b_count=None,
     ):
         if self.use_substructure_evidence:
             if evidence_tokens is None:
@@ -593,6 +740,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     pharmacophore_drug_b_nodes,
                     pharmacophore_drug_b_types,
                     pharmacophore_drug_b_mask,
+                    pharmacophore_drug_b_count,
                 )
                 if any(value is None for value in required):
                     raise ValueError(
@@ -606,6 +754,9 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     pharmacophore_drug_b_nodes,
                     pharmacophore_drug_b_types,
                     pharmacophore_drug_b_mask,
+                    precomputed_pair_tokens=pharmacophore_evidence_tokens,
+                    precomputed_pair_mask=pharmacophore_evidence_mask,
+                    drug_b_count=pharmacophore_drug_b_count,
                 )
                 pharmacophore_selected = pharmacophore_drug_selection["selected"]
                 pharmacophore_attention = pharmacophore_drug_selection["attention"]
