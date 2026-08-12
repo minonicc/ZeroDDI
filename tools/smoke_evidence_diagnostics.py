@@ -3,6 +3,9 @@
 import math
 from pathlib import Path
 import sys
+import json
+from types import SimpleNamespace
+import tempfile
 
 import torch
 
@@ -10,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.train import EvidenceDiagnosticsAccumulator
+from tools.train import EvidenceDiagnosticsAccumulator, save_validation_best
 
 
 def main():
@@ -53,6 +56,24 @@ def main():
     assert math.isclose(summary["null_token_weight"], 0.125, abs_tol=1e-12)
     assert math.isclose(summary["available_pair_count"], 5.0, abs_tol=1e-12)
     assert math.isclose(summary["valid_pair_count"], 5.0, abs_tol=1e-12)
+
+    with tempfile.TemporaryDirectory() as directory:
+        checkpoint = Path(directory) / "best.pkl"
+        cfg = SimpleNamespace(
+            model_parameter_best=str(checkpoint), seednumber=42
+        )
+        state = {"weight": torch.tensor([1.0, 2.0])}
+        metrics = {"ACC": 0.8, "Kappa": 0.7, "Macro-F1": 0.6}
+        save_validation_best(state, metrics, 17, cfg)
+        assert torch.equal(torch.load(checkpoint)["weight"], state["weight"])
+        metadata = json.loads(
+            Path(f"{checkpoint}.metrics.json").read_text(encoding="utf-8")
+        )
+        assert metadata["best_epoch"] == 17
+        assert metadata["seed"] == 42
+        assert metadata["metric_split"] == "validation"
+        assert metadata["metrics"] == metrics
+        assert not Path(f"{checkpoint}.metrics.json.tmp").exists()
     print("Evidence diagnostics smoke test passed")
 
 

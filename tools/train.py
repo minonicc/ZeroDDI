@@ -39,6 +39,25 @@ global history
 history = defaultdict(list)
 
 
+def save_validation_best(state_dict, metrics, epoch, cfg):
+    """Persist a validation-selected checkpoint with auditable metadata."""
+    torch.save(state_dict, cfg.model_parameter_best)
+    metadata = {
+        "checkpoint": cfg.model_parameter_best,
+        "best_epoch": int(epoch),
+        "seed": int(cfg.seednumber),
+        "metric_split": "validation",
+        "selection_rule": "Macro-F1; if abs(delta)<0.001 use Kappa then ACC",
+        "metrics": {name: float(value) for name, value in metrics.items()},
+    }
+    metadata_path = f"{cfg.model_parameter_best}.metrics.json"
+    temporary_path = f"{metadata_path}.tmp"
+    with open(temporary_path, "w", encoding="utf-8") as output_file:
+        json.dump(metadata, output_file, indent=2, sort_keys=True)
+        output_file.write("\n")
+    os.replace(temporary_path, metadata_path)
+
+
 class EvidenceDiagnosticsAccumulator:
     def __init__(self):
         self.scalar_sums = defaultdict(float)
@@ -369,7 +388,9 @@ def train_model(model, datasets, cfg):
                     # Persist every validation improvement so a long run keeps
                     # its best checkpoint even if it ends before the next
                     # periodic snapshot or the normal final save.
-                    torch.save(seen_best_model, cfg.model_parameter_best)
+                    save_validation_best(
+                        seen_best_model, best_seen_metrics, epoch + 1, cfg
+                    )
                     logger.info(
                         "Saved improved validation checkpoint at epoch %d to %s",
                         epoch + 1,
@@ -408,7 +429,9 @@ def train_model(model, datasets, cfg):
     logger.info(f"The zsl best epoch is {zsl_best_epoch + 1}")
     logger.info(f"The seen best epoch is {seen_best_epoch + 1}")
     if seen_best_model != 0:
-        torch.save(seen_best_model, cfg.model_parameter_best)
+        save_validation_best(
+            seen_best_model, best_seen_metrics, seen_best_epoch + 1, cfg
+        )
         logger.info(
             "Saved validation-selected seen checkpoint to %s with metrics %s",
             cfg.model_parameter_best,
