@@ -58,11 +58,11 @@ Struct-S4 so they cannot be confused with dataset split names.
 
 | Experiment | State | Notes |
 |---|---|---|
-| P1: 128 mean no gate | 5-epoch debug passed; 50-epoch screen running | Debug Macro-F1 0.194286; GPU 4 screen |
-| P2: 512 sum no gate | 5-epoch debug passed; 50-epoch screen running | Debug Macro-F1 0.190971; GPU 5 screen |
-| P3: 128 sum gate | 5-epoch debug passed; 50-epoch screen running | Debug Macro-F1 0.215585; GPU 6 screen |
-| Struct-S1 | implemented, CPU smoke passed | Formal run waits for stage one |
-| Struct-S3 | implemented, CPU smoke passed | Formal config waits for stage-one winner |
+| P1: 128 mean no gate | 50-epoch screen complete | Best epoch 49: ACC 0.901640, Kappa 0.892267, Macro-F1 0.740629 |
+| P2: 512 sum no gate | 50-epoch screen complete | Best epoch 49: ACC 0.901362, Kappa 0.891847, Macro-F1 0.726708 |
+| P3: 128 sum gate | 50-epoch screen winner | Best epoch 50: ACC 0.895026, Kappa 0.885096, Macro-F1 0.762781 |
+| Struct-S1 | 3-epoch limited-step GPU debug passed | Complete validation; no OOM, NaN, or Inf; metrics not used for ranking |
+| Struct-S3 | implemented, CPU smoke passed | Formal config now inherits stage-one winner P3 |
 | Struct-S4 | 3-epoch limited-step GPU debug passed | Alpha: 0 -> 0.001021 -> 0.001266 -> 0.003576 |
 | T2-64 / T3-128 / T2-256 | implemented, CPU smoke passed | Candidate-specific pair Top-K |
 | D3-12 / D3-16 | D3-12 optimized 3-epoch limited-step GPU debug passed | Full validation and diagnostics completed without OOM |
@@ -70,3 +70,9 @@ Struct-S4 so they cannot be confused with dataset split names.
 The 5-epoch stage-one debug metrics are saved in `stage1_debug_5ep.csv`.
 They only establish correct execution and decreasing loss; they are not used for
 method selection.
+
+The 50-epoch validation-only screen is saved in
+`stage1_screen50_validation.csv`. P3 wins by Macro-F1 under the predefined
+selection rule, but its ACC and Kappa are lower than P1; the 100-epoch formal
+runs must therefore report all three primary metrics before drawing a final
+conclusion.
