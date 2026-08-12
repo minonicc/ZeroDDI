@@ -456,12 +456,17 @@ def evaluate(
     instances = None
     prototypes = None
     model.eval()
+    evaluation_diagnostics = (
+        EvidenceDiagnosticsAccumulator() if visualize_acc else None
+    )
 
     for step, batch in enumerate(eval_dataloader):
         with torch.no_grad():
             outputs = model(batch)
     
         loss, Logits_all, gt_id, instance, prototype = outputs[:5]  # (cost, logits, emb_ids, Matmul_gnn_W, right_output_all)
+        if evaluation_diagnostics is not None and len(outputs) > 8:
+            evaluation_diagnostics.update(outputs[8])
         eval_loss += loss.mean().item()
         nb_eval_steps += 1
         if preds is None:
@@ -475,6 +480,26 @@ def evaluate(
             instances = np.append(instances, instance.detach().cpu().numpy(), axis=0)
             prototypes = np.append(prototypes, prototype.detach().cpu().numpy(), axis=0)
     eval_loss = eval_loss / nb_eval_steps
+    if evaluation_diagnostics is not None:
+        diagnostic_summary = evaluation_diagnostics.summarize()
+        alpha = getattr(model.Leftmodel, "fixed_substructure_alpha", None)
+        if alpha is not None:
+            diagnostic_summary["fixed_substructure_alpha"] = float(
+                alpha.detach().cpu()
+            )
+        diagnostic_summary["class_event_ids"] = [
+            embid2eventid.get(class_id, class_id)
+            if hasattr(embid2eventid, "get")
+            else embid2eventid[class_id]
+            for class_id in range(preds.shape[1])
+        ]
+        diagnostic_path = osp.join(
+            cfg.work_dir,
+            f"{mode}_evidence_diagnostics_seed{cfg.seednumber}.json",
+        )
+        with open(diagnostic_path, "w", encoding="utf-8") as output_file:
+            json.dump(diagnostic_summary, output_file, indent=2, ensure_ascii=False)
+        logger.info("Saved final evidence diagnostics to %s", diagnostic_path)
     if zsl == "zsl" or zsl == "seen":
         Val_Evaluation, per_class_top_1_acc, acc_per_class_list, true_label_count = zsl_accuracy(preds, gt_emb_ids)
 
