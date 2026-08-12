@@ -1,5 +1,7 @@
 _base_ = './new_s0_reverse_kg_pharmacophore.py'
 
+provisional_dependency = 'stage2_validation_winner'
+
 # Engineering template only. Rebase onto the selected stage-two branch before
 # a formal screen; keep its pharmacophore pooling, gate, and scorer unchanged.
 model = dict(

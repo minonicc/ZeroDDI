@@ -1,5 +1,7 @@
 _base_ = './new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py'
 
+provisional_dependency = 'stage1_formal100_validation_winner'
+
 model = dict(
     leftmodel=dict(
         use_sub=True,

@@ -142,6 +142,13 @@ P3 remains only the provisional 50-epoch screen winner for the checked-in
 Struct-S1/S3 templates. Those templates may be used for controlled engineering
 debugs, but must be rebased if the stage-one 100-epoch validation winner changes
 before any Struct screen or formal run is launched.
+All Struct templates carry
+`provisional_dependency='stage1_formal100_validation_winner'`; the training
+entry point rejects more than five epochs until that marker is explicitly
+removed after winner lock and config re-audit. Stage-three templates carry the
+analogous `stage2_validation_winner` guard. A real CLI smoke invocation confirms
+that a provisional Struct-S3 50-epoch request fails before dataset/model build,
+while guarded runs of at most five epochs and unguarded formal configs pass.
 
 The 5-epoch stage-one debug metrics are saved in `stage1_debug_5ep.csv`.
 They only establish correct execution and decreasing loss; they are not used for

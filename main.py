@@ -12,6 +12,7 @@ import time
 from tools.config import Config
 from tools.utils import mkdir_or_exist, set_random_seed
 from tools.train import train_model, evaluate
+from tools.experiment_guard import enforce_provisional_run_limit
 from tools.logging_ import get_root_logger
 from models.builder import build_classifier
 from datasets.builder import build_dataset
@@ -129,6 +130,7 @@ def main():
         if args.max_train_steps <= 0:
             raise ValueError('--max-train-steps must be positive')
         cfg.max_train_steps_per_epoch = args.max_train_steps
+    enforce_provisional_run_limit(cfg)
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True

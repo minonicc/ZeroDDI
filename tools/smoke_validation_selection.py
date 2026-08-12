@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 
 from summarize_validation_runs import better, parse_log, require_complete_epochs
+from experiment_guard import enforce_provisional_run_limit
 
 
 def metric(macro_f1, kappa, acc):
@@ -38,6 +39,23 @@ ACC:0.7, Kappa:0.6, Macro-F1:0.5
         assert "unexpected=3" in str(error)
     else:
         raise AssertionError("A missing validation epoch was accepted as complete")
+
+    class GuardConfig(dict):
+        __getattr__ = dict.__getitem__
+
+    enforce_provisional_run_limit(
+        GuardConfig(provisional_dependency="upstream_winner", num_epochs=5)
+    )
+    try:
+        enforce_provisional_run_limit(
+            GuardConfig(provisional_dependency="upstream_winner", num_epochs=50)
+        )
+    except RuntimeError as error:
+        assert "upstream_winner" in str(error)
+        assert "at most 5" in str(error)
+    else:
+        raise AssertionError("A provisional screen run was accepted")
+    enforce_provisional_run_limit(GuardConfig(num_epochs=100))
     print("Validation selection smoke test passed")
 
 

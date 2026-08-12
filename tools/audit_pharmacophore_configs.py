@@ -139,7 +139,10 @@ def main():
     assert struct_s3.model.leftmodel.fixed_substructure_alpha_init == 0.0
     assert not struct_s3.model.leftmodel.use_query_substructure
     assert not struct_s4.model.matching_use_pharmacophore_evidence
+    for config in (struct_s1, struct_s3, struct_s4):
+        assert config.provisional_dependency == "stage1_formal100_validation_winner"
     for config in (top64, top128, top256, drug12, drug16):
+        assert config.provisional_dependency == "stage2_validation_winner"
         assert config.model.leftmodel.pharmacophore_max_pairs is None
         assert config.model.matching_use_pharmacophore_evidence
     assert top64.model.matching_pharmacophore_top_k == 64
