@@ -16,6 +16,30 @@ ARRAY_FIELDS = (
     "selected_position_histogram_64_128_256_512",
     "drug_topk_type_retention",
 )
+PHARMACOPHORE_FAMILIES = (
+    "Hydrophobe",
+    "Aromatic",
+    "Donor",
+    "Acceptor",
+    "PosIonizable",
+    "NegIonizable",
+)
+ARRAY_LABELS = {
+    "gate_histogram_10bin": [f"[{i / 10:.1f},{(i + 1) / 10:.1f})" for i in range(10)],
+    "pair_topk_type_retention": [
+        f"{left}|{right}"
+        for left in PHARMACOPHORE_FAMILIES
+        for right in PHARMACOPHORE_FAMILIES
+    ],
+    "selected_position_histogram_64_128_256_512": [
+        "[0,64)",
+        "[64,128)",
+        "[128,256)",
+        "[256,512)",
+        "[512,+inf)",
+    ],
+    "drug_topk_type_retention": list(PHARMACOPHORE_FAMILIES),
+}
 
 
 def load_diagnostics(path):
@@ -58,6 +82,15 @@ def summarize_array(row, field):
         return
     numeric = [float(value) for value in values]
     row[field] = json.dumps(numeric, separators=(",", ":"))
+    labels = ARRAY_LABELS.get(field)
+    if labels is not None:
+        if len(numeric) != len(labels):
+            raise ValueError(
+                f"{field} has {len(numeric)} values; expected {len(labels)}"
+            )
+        row[f"{field}_labeled"] = json.dumps(
+            dict(zip(labels, numeric)), separators=(",", ":")
+        )
     if not numeric:
         return
     mean = sum(numeric) / len(numeric)
