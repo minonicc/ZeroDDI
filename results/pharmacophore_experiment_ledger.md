@@ -153,6 +153,15 @@ selection rule, but its ACC and Kappa are lower than P1; the 100-epoch formal
 runs must therefore report all three primary metrics before drawing a final
 conclusion.
 
+All three screen-best checkpoint files deserialize successfully on CPU and all
+stored tensors are finite. P1 and P2 have identical 97-key state structures
+(6,232,879 tensor elements), as required for a pooling/max-pair control. P3 has
+exactly four additional keys, all belonging to the two linear layers of
+`ReverseMatcher.pharmacophore_gate`, for 6,430,000 tensor elements; there are no
+missing P1 keys or unrelated P3 additions. A strict current-model load is
+deferred until the next model-build/debug boundary to avoid competing with the
+three active formal data pipelines.
+
 ## Stage-one formal runs
 
 The three schemes admitted by the predefined screen rule started 100-epoch
