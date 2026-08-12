@@ -481,10 +481,11 @@ def evaluate(
 
     eval_loss = 0.0
     nb_eval_steps = 0
-    preds = None
-    gt_emb_ids = None
-    instances = None
-    prototypes = None
+    # Accumulate only the arrays consumed by the metrics. Repeated np.append
+    # copied every preceding batch (quadratic work), while instance/prototype
+    # were retained despite never being read by any evaluation branch.
+    prediction_batches = []
+    label_batches = []
     model.eval()
     evaluation_diagnostics = (
         EvidenceDiagnosticsAccumulator() if visualize_acc else None
@@ -494,21 +495,15 @@ def evaluate(
         with torch.no_grad():
             outputs = model(batch)
     
-        loss, Logits_all, gt_id, instance, prototype = outputs[:5]  # (cost, logits, emb_ids, Matmul_gnn_W, right_output_all)
+        loss, Logits_all, gt_id = outputs[:3]
         if evaluation_diagnostics is not None and len(outputs) > 8:
             evaluation_diagnostics.update(outputs[8])
         eval_loss += loss.mean().item()
         nb_eval_steps += 1
-        if preds is None:
-            preds = Logits_all.detach().cpu().numpy()
-            gt_emb_ids = gt_id.detach().cpu().numpy()
-            instances = instance.detach().cpu().numpy()
-            prototypes = prototype.detach().cpu().numpy()
-        else:
-            preds = np.append(preds, Logits_all.detach().cpu().numpy(), axis=0)
-            gt_emb_ids = np.append(gt_emb_ids, gt_id.detach().cpu().numpy(), axis=0)
-            instances = np.append(instances, instance.detach().cpu().numpy(), axis=0)
-            prototypes = np.append(prototypes, prototype.detach().cpu().numpy(), axis=0)
+        prediction_batches.append(Logits_all.detach().cpu().numpy())
+        label_batches.append(gt_id.detach().cpu().numpy())
+    preds = np.concatenate(prediction_batches, axis=0)
+    gt_emb_ids = np.concatenate(label_batches, axis=0)
     eval_loss = eval_loss / nb_eval_steps
     if evaluation_diagnostics is not None:
         diagnostic_summary = evaluation_diagnostics.summarize()

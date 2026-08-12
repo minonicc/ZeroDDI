@@ -245,3 +245,15 @@ lower Kappa and ACC for explicit trade-off review. The decision consumes no
 test metrics and does not mutate or unlock dependent configs: the winner still
 has to be reviewed, rebased into the Struct templates, audited, and only then
 have the provisional dependency marker removed.
+
+The running P1/P2/P3 processes exposed an evaluation accumulation bottleneck:
+each validation batch repeatedly appended to every prior NumPy result and also
+retained the model's large `instance` and `prototype` outputs even though no
+evaluation branch consumes them. This produced quadratic copying and roughly
+33 GB resident CPU memory per process near epoch-10 validation. The running
+jobs were not interrupted and therefore retain their original code and metric
+semantics. Subsequent processes collect prediction and label batches in lists,
+concatenate each exactly once, and discard the two unused outputs. The
+classification inputs and metric functions are unchanged. A smoke model whose
+unused outputs deliberately fail on materialization confirms they are not
+retained and that ACC, Kappa, and Macro-F1 remain exact on a multi-batch input.
