@@ -61,7 +61,7 @@ Struct-S4 so they cannot be confused with dataset split names.
 | P1: 128 mean no gate | 50-epoch screen complete | Best epoch 49: ACC 0.901640, Kappa 0.892267, Macro-F1 0.740629 |
 | P2: 512 sum no gate | 50-epoch screen complete | Best epoch 49: ACC 0.901362, Kappa 0.891847, Macro-F1 0.726708 |
 | P3: 128 sum gate | 50-epoch screen winner | Best epoch 50: ACC 0.895026, Kappa 0.885096, Macro-F1 0.762781 |
-| Struct-S1 | 3-epoch limited-step GPU debug passed | Complete validation; no OOM, NaN, or Inf; metrics not used for ranking |
+| Struct-S1 | implementation smoke passed; P3 controls locked | Earlier 3-epoch limited-step GPU debug used the provisional P0 controls and is engineering evidence only; rerun required before ranking |
 | Struct-S3 | implemented, CPU smoke passed | Formal config now inherits stage-one winner P3 |
 | Struct-S4 | 3-epoch limited-step GPU debug passed | Alpha: 0 -> 0.001021 -> 0.001266 -> 0.003576 |
 | T2-64 / T3-128 / T2-256 | implemented, CPU smoke passed | Candidate-specific pair Top-K |
