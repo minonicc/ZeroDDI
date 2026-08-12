@@ -100,6 +100,9 @@ def main():
         "pair_file": args.pair_file,
         "num_unique_drugs": len(drug_types),
         "invalid_drugs": invalid_drugs,
+        "pharmacophore_count_by_drug": {
+            drug: len(types) for drug, types in sorted(drug_types.items())
+        },
         "pharmacophores_per_drug": describe(drug_counts),
         "pharmacophore_family_counts": dict(sorted(family_counts.items())),
         "pairs_per_drug_pair": describe(pair_counts),
