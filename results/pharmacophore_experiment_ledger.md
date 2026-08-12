@@ -122,6 +122,14 @@ Physical GPU 5 was occupied by an unrelated process and was left untouched.
 All three runs passed initialization and reached at least step 100 of epoch 1
 with finite, decreasing training loss.
 
+Exact launch commands (each process sees its bound physical GPU as `cuda:0`):
+
+```bash
+CUDA_VISIBLE_DEVICES=4 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py --work-dir work_dirs/formal100_p1 --device cuda:0 --seednumber 42 --max-epochs 100
+CUDA_VISIBLE_DEVICES=6 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py --work-dir work_dirs/formal100_p2 --device cuda:0 --seednumber 42 --max-epochs 100
+CUDA_VISIBLE_DEVICES=7 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py --work-dir work_dirs/formal100_p3 --device cuda:0 --seednumber 42 --max-epochs 100
+```
+
 Epoch-level evidence diagnostics can be flattened with
 `tools/summarize_pharmacophore_diagnostics.py`. The script combines diagnostics
 JSONL with alpha values from training logs, preserves class/type arrays as JSON,
