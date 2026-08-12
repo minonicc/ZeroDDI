@@ -85,9 +85,9 @@ The Struct comparisons all apply this removal consistently.
 | P3: 128 sum gate | 50-epoch screen winner | Best epoch 50: ACC 0.895026, Kappa 0.885096, Macro-F1 0.762781 |
 | Struct-S1 | implementation smoke passed; P3 controls locked | Earlier 3-epoch limited-step GPU debug used the provisional P0 controls and is engineering evidence only; rerun required before ranking |
 | Struct-S3 | implemented, CPU smoke passed | Formal config now inherits stage-one winner P3 |
-| Struct-S4 | 3-epoch limited-step GPU debug passed | Alpha: 0 -> 0.001021 -> 0.001266 -> 0.003576 |
+| Struct-S4 | limited-step engineering run passed; controlled debug pending | 100 steps/epoch; alpha: 0 -> 0.001021 -> 0.001266 -> 0.003576 |
 | T2-64 / T3-128 / T2-256 | implemented, CPU smoke passed | Engineering templates; formal base waits for stage-two winner |
-| D3-12 / D3-16 | D3-12 optimized limited-step GPU debug passed | Earlier debug used provisional mean pooling and proves execution only; controlled templates now retain inherited pooling |
+| D3-12 / D3-16 | old D3-12 engineering run superseded; controlled debug pending | Earlier run used provisional mean pooling and the pre-correction pair path; it proves historical execution only |
 
 The current D3 implementation follows the specified operation order exactly:
 it pools each drug's pharmacophore nodes, performs candidate-specific node
