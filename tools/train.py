@@ -47,6 +47,8 @@ class EvidenceDiagnosticsAccumulator:
         self.gate_histogram = torch.zeros(10, dtype=torch.float64)
         self.gate_histogram_by_class = None
         self.gate_value_count = 0
+        self.gate_value_sum = 0.0
+        self.gate_value_square_sum = 0.0
         self.gate_near_zero_count = 0
         self.gate_near_one_count = 0
         self.drug_type_selected = torch.zeros(6, dtype=torch.float64)
@@ -161,9 +163,9 @@ class EvidenceDiagnosticsAccumulator:
         gate = diagnostics.get("pharmacophore_gate")
         if gate is not None:
             gate = gate.detach().float().squeeze(-1)
-            self.values["gate_mean"].append(gate.mean().cpu())
-            self.values["gate_std"].append(gate.std(unbiased=False).cpu())
             gate_cpu = gate.cpu()
+            self.gate_value_sum += float(gate_cpu.double().sum())
+            self.gate_value_square_sum += float(gate_cpu.double().square().sum())
             self.gate_histogram += torch.histc(
                 gate_cpu, bins=10, min=0.0, max=1.0
             ).double()
@@ -230,6 +232,14 @@ class EvidenceDiagnosticsAccumulator:
                 self.gate_sum_by_class / self.gate_count_by_class
             ).tolist()
         if self.gate_value_count:
+            gate_mean = self.gate_value_sum / self.gate_value_count
+            gate_variance = max(
+                0.0,
+                self.gate_value_square_sum / self.gate_value_count
+                - gate_mean * gate_mean,
+            )
+            summary["gate_mean"] = gate_mean
+            summary["gate_std"] = gate_variance ** 0.5
             summary["gate_histogram_10bin"] = (
                 self.gate_histogram / self.gate_value_count
             ).tolist()
