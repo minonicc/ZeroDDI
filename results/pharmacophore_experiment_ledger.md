@@ -264,3 +264,28 @@ default and can be enabled only with an explicit positive
 `log_config.interval=50` still controls the framework logger configuration but
 no longer emits roughly 67 `epoch:N step:M/3353` lines per training epoch.
 This changes logging only, not optimization, validation, or checkpointing.
+
+### Formal restart after abnormal validation
+
+The first formal processes were user-authorized to stop with `SIGTERM` on
+2026-08-12 after epoch-10 validation remained active for more than 80 minutes.
+They had completed nine validation epochs, had not reached the epoch-20
+checkpoint boundary, and produced no resumable optimizer/epoch checkpoint.
+Their work directories and logs remain preserved as abnormal-run evidence:
+`formal100_p1`, `formal100_p2`, and `formal100_p3`. They are excluded from all
+formal summaries and winner decisions.
+
+Fresh seed-42 runs use commit `849cafc`, which includes linear validation
+accumulation (`0e42b6c`) and concise formal logs. They were deliberately
+staggered and use new work directories:
+
+| Experiment | Physical GPU | Start | Session | PID | Work directory |
+|---|---:|---|---:|---:|---|
+| P1 | 4 | 16:31 | 70834 | 51325 | `work_dirs/formal100_v2_p1` |
+| P2 | 6 | 16:35 | 93788 | 70387 | `work_dirs/formal100_v2_p2` |
+| P3 | 7 | 16:38 | 13780 | 82711 | `work_dirs/formal100_v2_p3` |
+
+Each command otherwise retains the original config, seed 42, 100 epochs,
+Adam learning rate 0.0001, batch size 128, and validation-only checkpoint rule.
+P1 and P2 reached the 429,137-instance training loop before this record; P3
+was still completing initialization. Physical GPU 5 was not assigned.
