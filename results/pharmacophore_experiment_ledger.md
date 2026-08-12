@@ -67,6 +67,14 @@ Full report: `pharmacophore_coverage_s0.json`.
 Structure experiment names are always written as Struct-S1, Struct-S3, and
 Struct-S4 so they cannot be confused with dataset split names.
 
+All three Struct configs set `semantic_aux_lambda=0.0` as a necessary
+consequence of removing the DDIE-query substructure branch. In the inherited
+classifier, this auxiliary term calls `Local(left_output, sub_structure, ...)`;
+`Local` uses `sub_structure` as the query in candidate-DDIE semantic attention.
+It is therefore part of the removed query-substructure mechanism rather than
+an independent regularizer that could be retained after `sub_structure=None`.
+The Struct comparisons all apply this removal consistently.
+
 | Experiment | State | Notes |
 |---|---|---|
 | P1: 128 mean no gate | 50-epoch screen complete | Best epoch 49: ACC 0.901640, Kappa 0.892267, Macro-F1 0.740629 |
