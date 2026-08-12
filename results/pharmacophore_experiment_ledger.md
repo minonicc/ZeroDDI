@@ -92,3 +92,9 @@ seed-42 formal validation runs on 2026-08-12. Each run uses Adam, learning rate
 Physical GPU 5 was occupied by an unrelated process and was left untouched.
 All three runs passed initialization and reached at least step 100 of epoch 1
 with finite, decreasing training loss.
+
+Epoch-level evidence diagnostics can be flattened with
+`tools/summarize_pharmacophore_diagnostics.py`. The script combines diagnostics
+JSONL with alpha values from training logs, preserves class/type arrays as JSON,
+and adds mean, standard deviation, minimum, and maximum summaries for direct
+run-to-run comparison.
