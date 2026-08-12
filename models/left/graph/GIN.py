@@ -596,6 +596,18 @@ class GNN_model(nn.Module):
                     "tokens": pharmacophore_pairs,
                     "mask": pharmacophore_mask,
                 }
+                # Pair-level Top-K templates expose the complete pair set
+                # (max_pairs=None).  Only those runs need type IDs for selected
+                # type coverage, so fixed-prefix controls pay no extra cost.
+                if self.pharmacophore_pair_encoder.max_pairs is None:
+                    pharmacophore_evidence["pair_types"] = (
+                        self.pharmacophore_pair_encoder.pair_type_ids(
+                            drug1_features,
+                            drug2_features,
+                            pharmacophore_pairs.size(1),
+                            pharmacophore_pairs.device,
+                        )
+                    )
         else:
             pharmacophore_evidence = None
 

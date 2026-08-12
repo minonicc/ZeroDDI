@@ -50,6 +50,8 @@ class EvidenceDiagnosticsAccumulator:
         self.gate_near_one_count = 0
         self.drug_type_selected = torch.zeros(6, dtype=torch.float64)
         self.drug_type_available = torch.zeros(6, dtype=torch.float64)
+        self.pair_type_selected = torch.zeros(36, dtype=torch.float64)
+        self.pair_type_available = torch.zeros(36, dtype=torch.float64)
 
     def update(self, diagnostics):
         if not diagnostics:
@@ -84,6 +86,45 @@ class EvidenceDiagnosticsAccumulator:
                 self.values["fixed128_topk_overlap"].append(
                     (selected_positions < 128).float().mean().cpu()
                 )
+            pair_types = diagnostics.get("pharmacophore_pair_types")
+            if pair_types is not None:
+                pair_types = pair_types.detach()
+                batch_size, num_candidates, _ = selection_indices.shape
+                selected_types = torch.gather(
+                    pair_types.unsqueeze(1).expand(-1, num_candidates, -1),
+                    2,
+                    selection_indices,
+                )
+                available_counts = torch.zeros(
+                    batch_size, 36, dtype=torch.long, device=pair_types.device
+                )
+                available_counts.scatter_add_(
+                    1,
+                    pair_types.clamp_min(0),
+                    (pair_types >= 0).long(),
+                )
+                selected_counts = torch.zeros(
+                    batch_size,
+                    num_candidates,
+                    36,
+                    dtype=torch.long,
+                    device=pair_types.device,
+                )
+                selected_counts.scatter_add_(
+                    2,
+                    selected_types.clamp_min(0),
+                    real_mask.long(),
+                )
+                available_presence = available_counts.gt(0).unsqueeze(1)
+                selected_presence = selected_counts.gt(0)
+                coverage = selected_presence.sum(dim=-1).float() / available_presence.sum(
+                    dim=-1
+                ).clamp_min(1)
+                self.values["pair_topk_type_coverage"].append(coverage.mean().cpu())
+                self.pair_type_available += (
+                    available_counts.sum(dim=0).double().cpu() * num_candidates
+                )
+                self.pair_type_selected += selected_counts.sum((0, 1)).double().cpu()
         gate = diagnostics.get("pharmacophore_gate")
         if gate is not None:
             gate = gate.detach().float().squeeze(-1)
@@ -149,6 +190,10 @@ class EvidenceDiagnosticsAccumulator:
         if self.drug_type_available.sum() > 0:
             summary["drug_topk_type_retention"] = (
                 self.drug_type_selected / self.drug_type_available.clamp_min(1)
+            ).tolist()
+        if self.pair_type_available.sum() > 0:
+            summary["pair_topk_type_retention"] = (
+                self.pair_type_selected / self.pair_type_available.clamp_min(1)
             ).tolist()
         return summary
 

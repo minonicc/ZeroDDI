@@ -125,6 +125,7 @@ class PharmacophorePairEncoder(nn.Module):
             raise ValueError("pooling must be 'sum' or 'mean'")
         self.atom_dim = atom_dim
         self.output_dim = output_dim
+        self.num_families = num_families
         self.max_pairs = max_pairs
         self.pooling = pooling
         self.batch_pair_mlp = batch_pair_mlp
@@ -315,6 +316,44 @@ class PharmacophorePairEncoder(nn.Module):
             types_out[batch_idx, :length] = type_ids
             mask[batch_idx, :length] = True
         return nodes_out, types_out, mask
+
+    def pair_type_ids(self, drug_a_features, drug_b_features, max_len, device):
+        """Return padded row-major pharmacophore type-pair IDs."""
+        output = torch.full(
+            (len(drug_a_features), max_len),
+            -1,
+            dtype=torch.long,
+            device=device,
+        )
+        for batch_idx, (features_a, features_b) in enumerate(
+            zip(drug_a_features, drug_b_features)
+        ):
+            if isinstance(features_a, dict):
+                types_a = features_a["type_ids"].to(device)
+            else:
+                types_a = torch.tensor(
+                    [feature["family_id"] for feature in features_a],
+                    dtype=torch.long,
+                    device=device,
+                )
+            if isinstance(features_b, dict):
+                types_b = features_b["type_ids"].to(device)
+            else:
+                types_b = torch.tensor(
+                    [feature["family_id"] for feature in features_b],
+                    dtype=torch.long,
+                    device=device,
+                )
+            if types_a.numel() == 0 or types_b.numel() == 0:
+                continue
+            pair_types = (
+                types_a[:, None] * self.num_families + types_b[None, :]
+            ).reshape(-1)
+            if self.max_pairs is not None:
+                pair_types = pair_types[: self.max_pairs]
+            length = min(pair_types.numel(), max_len)
+            output[batch_idx, :length] = pair_types[:length]
+        return output
 
     def _forward_batched_pair_mlp(self, drug_a_batch, drug_b_batch, drug_a_features, drug_b_features):
         batch_size = len(drug_a_features)

@@ -12,6 +12,7 @@ ALPHA_RE = re.compile(r"fixed_substructure_alpha:([0-9.eE+-]+)")
 ARRAY_FIELDS = (
     "gate_mean_by_class",
     "gate_histogram_10bin",
+    "pair_topk_type_retention",
     "drug_topk_type_retention",
 )
 
