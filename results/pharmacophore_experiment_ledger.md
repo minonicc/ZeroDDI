@@ -198,3 +198,9 @@ only a short run but also logs with missing, duplicated, unexpected, or
 out-of-order validation epochs, preventing line-count coincidences from being
 reported as a finished formal run. Its checkpoint comparator is covered at the
 strict 0.001 Macro-F1 boundary and matches the training comparator.
+`tools/audit_pharmacophore_results.py` additionally enforces the required
+experiment/run-level rows, unique per-seed records, complete primary-metric
+triples, validation-only preselection rows, test-only final rows, and explicit
+checkpoint paths for running formal experiments. Superseded engineering runs
+and their required controlled reruns therefore remain separate machine-readable
+records.
