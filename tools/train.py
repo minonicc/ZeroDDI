@@ -386,7 +386,13 @@ def evaluate(
         cls_metrics = classification_metrics(preds, gt_emb_ids)
         log_classification_metrics(logger, cls_metrics)
         if visualize_acc:
-            save_classification_details(preds, gt_emb_ids, cfg, mode)
+            save_classification_details(
+                preds,
+                gt_emb_ids,
+                cfg,
+                mode,
+                embid2eventid=embid2eventid,
+            )
         logger.info("************************\n")
 
         if return_metrics:
@@ -492,21 +498,31 @@ def log_classification_metrics(logger, metrics):
     )
 
 
-def save_classification_details(logits, ids, cfg, mode):
+def save_classification_details(
+    logits, ids, cfg, mode, embid2eventid=None
+):
     predictions = np.argmax(logits, axis=1)
     labels = np.arange(logits.shape[1])
     precision, recall, f1, support = precision_recall_fscore_support(
         ids, predictions, labels=labels, zero_division=0
     )
-    details = pd.DataFrame(
+    details_data = {"class_id": labels}
+    if embid2eventid is not None:
+        details_data["event_id"] = [
+            embid2eventid.get(int(label), int(label))
+            if hasattr(embid2eventid, "get")
+            else embid2eventid[int(label)]
+            for label in labels
+        ]
+    details_data.update(
         {
-            "class_id": labels,
             "precision": precision,
             "recall": recall,
             "f1": f1,
             "support": support,
         }
     )
+    details = pd.DataFrame(details_data)
     details.to_csv(
         osp.join(cfg.work_dir, f"{mode}_class_metrics_seed{cfg.seednumber}.csv"),
         index=False,
