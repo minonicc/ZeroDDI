@@ -96,6 +96,15 @@ class classifier(nn.Module):
             init.xavier_normal_(self.W_k)
             init.xavier_normal_(self.W_v)
         if self.matching_mode == 'reverse':
+            shared_pair_encoder = None
+            if matching_pharmacophore_drug_top_k is not None:
+                shared_pair_encoder = getattr(
+                    self.Leftmodel, "pharmacophore_pair_encoder", None
+                )
+                if shared_pair_encoder is None:
+                    raise ValueError(
+                        "drug-level pharmacophore Top-K requires the left pair encoder"
+                    )
             self.ReverseMatcher = ReverseAttentionCandidateMatcher(
                 pair_dim=256,
                 evidence_dim=300,
@@ -117,6 +126,7 @@ class classifier(nn.Module):
                 pharmacophore_drug_top_k=matching_pharmacophore_drug_top_k,
                 pharmacophore_type_dim=matching_pharmacophore_type_dim,
                 pharmacophore_candidate_chunk_size=matching_pharmacophore_candidate_chunk_size,
+                pharmacophore_shared_pair_encoder=shared_pair_encoder,
             )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")

@@ -94,6 +94,12 @@ rows. The original available-pair count is passed separately as a small tensor,
 so coverage and selection-fraction diagnostics retain their full-set
 denominator without the full-set memory cost. The earlier D3-12 engineering
 debug predates this correction and must therefore be rerun before screening.
+For a controlled comparison, the direct D3 path reuses the Leftmodel
+pharmacophore type embedding, pair MLP, and LayerNorm rather than initializing a
+second pair encoder inside the selector. A deterministic backward smoke check
+proves that D3 loss gradients reach that registered shared encoder, while the
+selector owns only the new DDIE-guided node-selection and pair-aggregation
+parameters.
 
 Pair-level Top-K must rank the complete real pair set, so the T2/T3 templates
 intentionally set `pharmacophore_max_pairs=None`; silently capping them would

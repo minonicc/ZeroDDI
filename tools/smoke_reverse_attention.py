@@ -244,6 +244,21 @@ def main():
     )
     print("candidate-specific pharmacophore top-k smoke test ok")
 
+    class SharedPairEncoder(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.atom_dim = evidence_dim
+            self.output_dim = evidence_dim
+            self.type_embedding = torch.nn.Embedding(6, 32)
+            self.pair_mlp = torch.nn.Sequential(
+                torch.nn.Linear(evidence_dim * 4 + 64, evidence_dim),
+                torch.nn.LeakyReLU(),
+                torch.nn.Dropout(0.0),
+                torch.nn.Linear(evidence_dim, evidence_dim),
+            )
+            self.norm = torch.nn.LayerNorm(evidence_dim)
+
+    shared_pair_encoder = SharedPairEncoder()
     drug_top_k_model = ReverseAttentionCandidateMatcher(
         pair_dim=pair_dim,
         evidence_dim=evidence_dim,
@@ -253,6 +268,7 @@ def main():
         pharmacophore_evidence_dim=evidence_dim,
         pharmacophore_drug_top_k=3,
         pharmacophore_candidate_chunk_size=2,
+        pharmacophore_shared_pair_encoder=shared_pair_encoder,
     )
     drug_a_nodes = torch.randn(batch_size, 5, evidence_dim)
     drug_b_nodes = torch.randn(batch_size, 4, evidence_dim)
@@ -327,6 +343,16 @@ def main():
         direct_drug_top_k_outputs["pharmacophore_attention"].sum(dim=-1),
         torch.ones(batch_size, num_events),
         atol=1e-6,
+    )
+    direct_drug_top_k_outputs["loss"].backward()
+    assert shared_pair_encoder.pair_mlp[0].weight.grad is not None
+    selector_parameter_names = dict(
+        drug_top_k_model.pharmacophore_drug_selector.named_parameters()
+    )
+    assert not any(name.startswith("pair_mlp.") for name in selector_parameter_names)
+    assert (
+        drug_top_k_model.pharmacophore_drug_selector._shared_pair_encoder
+        is shared_pair_encoder
     )
 
     deterministic_drug_selector = CandidateSpecificDrugPairSelector(

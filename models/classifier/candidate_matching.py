@@ -204,6 +204,7 @@ class CandidateSpecificDrugPairSelector(nn.Module):
         dropout=0.1,
         candidate_chunk_size=8,
         use_null_evidence=True,
+        shared_pair_encoder=None,
     ):
         super().__init__()
         self.top_k = int(top_k)
@@ -212,18 +213,35 @@ class CandidateSpecificDrugPairSelector(nn.Module):
         self.use_null_evidence = use_null_evidence
         self.query = nn.Linear(event_dim, output_dim)
         self.node_key = nn.Linear(atom_dim, output_dim)
-        self.type_embedding = nn.Embedding(num_types, type_dim)
-        self.pair_mlp = nn.Sequential(
-            nn.Linear(atom_dim * 4 + type_dim * 2, pair_dim),
-            nn.LeakyReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(pair_dim, pair_dim),
-        )
-        self.pair_norm = nn.LayerNorm(pair_dim)
+        # D3 must change selection, not silently replace the baseline pair
+        # encoder. Keep a non-registered reference because the shared module is
+        # already registered under Leftmodel and should appear once in the
+        # optimizer/state dict.
+        object.__setattr__(self, "_shared_pair_encoder", shared_pair_encoder)
+        if shared_pair_encoder is None:
+            self.type_embedding = nn.Embedding(num_types, type_dim)
+            self.pair_mlp = nn.Sequential(
+                nn.Linear(atom_dim * 4 + type_dim * 2, pair_dim),
+                nn.LeakyReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(pair_dim, pair_dim),
+            )
+            self.pair_norm = nn.LayerNorm(pair_dim)
+        else:
+            if shared_pair_encoder.atom_dim != atom_dim:
+                raise ValueError("shared pair encoder atom dimension mismatch")
+            if shared_pair_encoder.output_dim != pair_dim:
+                raise ValueError("shared pair encoder output dimension mismatch")
         self.pair_key = nn.Linear(pair_dim, output_dim)
         self.pair_value = nn.Linear(pair_dim, output_dim)
         if self.use_null_evidence:
             self.null_pair = nn.Parameter(torch.zeros(1, 1, pair_dim))
+
+    def _pair_modules(self):
+        shared = self._shared_pair_encoder
+        if shared is not None:
+            return shared.type_embedding, shared.pair_mlp, shared.norm
+        return self.type_embedding, self.pair_mlp, self.pair_norm
 
     def _top_nodes(self, query, nodes, mask):
         scores = torch.matmul(query, self.node_key(nodes).transpose(1, 2))
@@ -250,8 +268,9 @@ class CandidateSpecificDrugPairSelector(nn.Module):
         return torch.gather(expanded, 2, gather_index)
 
     def _encode_chunk(self, chunk_query, left, right, left_types, right_types, pair_valid):
-        left_type = self.type_embedding(left_types)
-        right_type = self.type_embedding(right_types)
+        type_embedding, pair_mlp, pair_norm = self._pair_modules()
+        left_type = type_embedding(left_types)
+        right_type = type_embedding(right_types)
         pair_left = left.unsqueeze(3).expand(-1, -1, -1, right.size(2), -1)
         pair_right = right.unsqueeze(2).expand(-1, -1, left.size(2), -1, -1)
         type_left = left_type.unsqueeze(3).expand(-1, -1, -1, right.size(2), -1)
@@ -268,8 +287,8 @@ class CandidateSpecificDrugPairSelector(nn.Module):
             dim=-1,
         )
         pair_shape = pair_input.shape[:-1]
-        pair_tokens = self.pair_norm(self.pair_mlp(pair_input)).reshape(
-            pair_shape[0], pair_shape[1], -1, self.pair_mlp[-1].out_features
+        pair_tokens = pair_norm(pair_mlp(pair_input)).reshape(
+            pair_shape[0], pair_shape[1], -1, self.pair_key.in_features
         )
         pair_scores = (chunk_query.unsqueeze(2) * self.pair_key(pair_tokens)).sum(dim=-1)
         pair_scores = pair_scores / math.sqrt(self.output_dim)
@@ -574,6 +593,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_drug_top_k=None,
         pharmacophore_type_dim=32,
         pharmacophore_candidate_chunk_size=8,
+        pharmacophore_shared_pair_encoder=None,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -631,6 +651,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     dropout=dropout,
                     candidate_chunk_size=pharmacophore_candidate_chunk_size,
                     use_null_evidence=use_null_evidence,
+                    shared_pair_encoder=pharmacophore_shared_pair_encoder,
                 )
             else:
                 self.pharmacophore_selector = DDIEGuidedEvidenceSelector(
