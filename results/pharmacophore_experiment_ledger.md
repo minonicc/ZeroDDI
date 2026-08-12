@@ -257,3 +257,10 @@ concatenate each exactly once, and discard the two unused outputs. The
 classification inputs and metric functions are unchanged. A smoke model whose
 unused outputs deliberately fail on materialization confirms they are not
 retained and that ACC, Kappa, and Macro-F1 remain exact on a multi-batch input.
+
+Formal training logs are epoch-oriented again: batch progress is disabled by
+default and can be enabled only with an explicit positive
+`train_progress_interval` in a debug config. The inherited generic
+`log_config.interval=50` still controls the framework logger configuration but
+no longer emits roughly 67 `epoch:N step:M/3353` lines per training epoch.
+This changes logging only, not optimization, validation, or checkpointing.

@@ -347,7 +347,10 @@ def train_model(model, datasets, cfg):
 
             batch_loss += loss.item()
             batch_step += 1
-            log_interval = cfg.get("log_config", {}).get("interval", 50)
+            # Keep formal logs epoch-oriented. Batch progress is useful for a
+            # targeted debug run, but the generic logger interval previously
+            # produced 67 extra lines per epoch and obscured validation output.
+            log_interval = cfg.get("train_progress_interval", 0)
             if log_interval and (step + 1) % log_interval == 0:
                 logger.info(
                     "epoch:%d step:%d/%d running_train_loss:%f",
