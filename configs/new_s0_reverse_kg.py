@@ -66,4 +66,5 @@ data = dict(
 
 selection_metric = 'Macro-F1'
 train_batch_size = 128
+cpu_threads = 8
 work_dir = './work_dirs/new_s0_reverse_kg'

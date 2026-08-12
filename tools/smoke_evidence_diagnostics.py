@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.train import EvidenceDiagnosticsAccumulator, save_validation_best
+from tools.train import (
+    EvidenceDiagnosticsAccumulator,
+    compact_diagnostic_summary,
+    save_validation_best,
+)
 
 
 def main():
@@ -56,6 +60,10 @@ def main():
     assert math.isclose(summary["null_token_weight"], 0.125, abs_tol=1e-12)
     assert math.isclose(summary["available_pair_count"], 5.0, abs_tol=1e-12)
     assert math.isclose(summary["valid_pair_count"], 5.0, abs_tol=1e-12)
+    compact = compact_diagnostic_summary(summary)
+    assert compact["gate_mean"] == summary["gate_mean"]
+    assert "gate_mean_by_class" not in compact
+    assert "gate_histogram_10bin_by_class" not in compact
 
     with tempfile.TemporaryDirectory() as directory:
         checkpoint = Path(directory) / "best.pkl"

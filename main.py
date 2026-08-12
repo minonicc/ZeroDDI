@@ -130,6 +130,14 @@ def main():
         if args.max_train_steps <= 0:
             raise ValueError('--max-train-steps must be positive')
         cfg.max_train_steps_per_epoch = args.max_train_steps
+    cpu_threads = int(cfg.get('cpu_threads', 8))
+    if cpu_threads <= 0:
+        raise ValueError('cpu_threads must be positive')
+    torch.set_num_threads(cpu_threads)
+    # Inter-op work is small here; a single coordinator avoids creating a
+    # second server-wide pool for each independent GPU experiment.
+    torch.set_num_interop_threads(1)
+    cfg.cpu_threads = cpu_threads
     enforce_provisional_run_limit(
         cfg,
         evaluation_requested=bool(
@@ -172,6 +180,11 @@ def main():
 
     logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
     logger.info(f"config is {cfg}")
+    logger.info(
+        "CPU thread limits: intra_op=%d, inter_op=%d",
+        torch.get_num_threads(),
+        torch.get_num_interop_threads(),
+    )
     #logger.info(f'Set random seed to {int(args.seednumber)}')
 
     # set random seeds

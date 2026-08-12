@@ -283,6 +283,15 @@ class EvidenceDiagnosticsAccumulator:
         return summary
 
 
+def compact_diagnostic_summary(summary):
+    """Keep large per-class/type arrays in JSONL, not the main text log."""
+    return {
+        name: value
+        for name, value in summary.items()
+        if not isinstance(value, (list, tuple, dict))
+    }
+
+
 def train_model(model, datasets, cfg):
     logger = get_root_logger(log_level=cfg.log_level)
     train_sampler = RandomSampler(datasets[0]) #datasets[0] is train dataset
@@ -412,7 +421,10 @@ def train_model(model, datasets, cfg):
                 )
                 with open(diagnostic_path, "a", encoding="utf-8") as output_file:
                     output_file.write(json.dumps(diagnostic_summary) + "\n")
-                logger.info("evidence_diagnostics:%s", diagnostic_summary)
+                logger.info(
+                    "evidence_diagnostics_summary:%s",
+                    compact_diagnostic_summary(diagnostic_summary),
+                )
             # print("time",time.time()-t1)
         if (epoch + 1) % 20 == 0:
             #if torch.distributed.get_rank() == 0:

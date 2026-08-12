@@ -289,3 +289,24 @@ Each command otherwise retains the original config, seed 42, 100 epochs,
 Adam learning rate 0.0001, batch size 128, and validation-only checkpoint rule.
 P1 and P2 reached the 429,137-instance training loop before this record; P3
 was still completing initialization. Physical GPU 5 was not assigned.
+
+The v2 runs exposed severe host CPU oversubscription rather than a deterministic
+metric regression: the same 61,234-by-197 classification metrics that took
+16--20 seconds in `new_s0_reverse_kg_gnn/20260804_153833.log` varied from about
+12 seconds to more than an hour while system load reached 177, around 280 tasks
+were runnable, and system CPU time approached 47%. The repository had never
+set PyTorch/MKL thread limits; this environment defaults to 255 intra-op and
+127 inter-op threads, with about 321 native threads visible after full model
+initialization. V2 P1/P2/P3 were therefore user-authorized to stop after four,
+three, and four partial epochs respectively and remain excluded from selection.
+
+Subsequent launches set both `OMP_NUM_THREADS=8` and `MKL_NUM_THREADS=8`, while
+the resolved S0 config records `cpu_threads=8`; `main.py` also enforces eight
+PyTorch intra-op threads and one inter-op coordinator. A synthetic
+61,234-by-197 full metric calculation, including macro and micro PR-AUC, took
+12.0 seconds and stayed at eight native threads under these limits. The limits
+change scheduling/resource use only, not logits or metric definitions.
+
+Large P3 per-class gate arrays remain fully serialized in diagnostics JSONL,
+but the text log now emits only scalar diagnostic summaries. This prevents the
+197-by-10 gate histogram and 197-value class mean from flooding the main log.
