@@ -190,4 +190,8 @@ The machine-readable unified table is `pharmacophore_results.csv`. It keeps
 historical test references, validation screens, formal validation runs, and
 eventual final tests in separate `metric_split` / `run_level` fields. Formal
 summaries use `tools/summarize_validation_runs.py --expected-epochs 100`, which
-refuses to summarize an incomplete run as a finished 100-epoch result.
+requires the exact ordered validation epoch sequence 1--100. It refuses not
+only a short run but also logs with missing, duplicated, unexpected, or
+out-of-order validation epochs, preventing line-count coincidences from being
+reported as a finished formal run. Its checkpoint comparator is covered at the
+strict 0.001 Macro-F1 boundary and matches the training comparator.

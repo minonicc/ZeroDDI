@@ -48,6 +48,35 @@ def better(candidate, incumbent):
     return candidate["ACC"] > incumbent["ACC"]
 
 
+def format_epoch_ranges(epochs):
+    if not epochs:
+        return "none"
+    ranges = []
+    start = previous = epochs[0]
+    for epoch in epochs[1:]:
+        if epoch != previous + 1:
+            ranges.append(str(start) if start == previous else f"{start}-{previous}")
+            start = epoch
+        previous = epoch
+    ranges.append(str(start) if start == previous else f"{start}-{previous}")
+    return ",".join(ranges)
+
+
+def require_complete_epochs(name, path, epochs, expected_epochs):
+    observed = [row["epoch"] for row in epochs]
+    expected = list(range(1, expected_epochs + 1))
+    if observed != expected:
+        observed_set = set(observed)
+        missing = [epoch for epoch in expected if epoch not in observed_set]
+        unexpected = [epoch for epoch in observed if epoch not in set(expected)]
+        raise RuntimeError(
+            f"{name} has {len(observed)} validation rows in {path}; expected "
+            f"ordered epochs 1..{expected_epochs}. Observed={observed}; "
+            f"missing={format_epoch_ranges(missing)}; "
+            f"unexpected={format_epoch_ranges(unexpected)}"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", nargs=2, action="append", metavar=("NAME", "LOG"), required=True)
@@ -62,11 +91,8 @@ def main():
     summary = []
     for name, path in args.run:
         epochs = parse_log(path)
-        if args.expected_epochs is not None and len(epochs) != args.expected_epochs:
-            raise RuntimeError(
-                f"{name} has {len(epochs)} completed validation epochs in {path}; "
-                f"expected {args.expected_epochs}"
-            )
+        if args.expected_epochs is not None:
+            require_complete_epochs(name, path, epochs, args.expected_epochs)
         best = None
         for row in epochs:
             if better(row, best):
