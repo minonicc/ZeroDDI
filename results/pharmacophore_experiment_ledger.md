@@ -13,6 +13,12 @@
   then Kappa and ACC when Macro-F1 differs by less than 0.001.
 - Test is not invoked by the training path. It is reserved for a selected
   validation checkpoint via the explicit evaluation path.
+- The explicit S0 seen-label test path intentionally builds `data.zsl_test`:
+  dataset-local class IDs are assigned by first appearance, and train versus
+  test differ at 195 of 197 class-order positions. `data.zsl_test` supplies
+  test-local prototypes and KG tokens consistently; substituting `test_seen`
+  (which uses train prototypes and has no KG file) would misalign labels. The
+  `--seen_para` path writes per-class metrics and the confusion matrix.
 - The inherited evaluator at commit `bb929c1` used `RandomSampler` together
   with `drop_last=True`, so every evaluation randomly omitted the final partial
   batch (50 of 61234 S0 validation rows). The current branch evaluates all rows

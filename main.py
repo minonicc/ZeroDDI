@@ -72,7 +72,15 @@ def parse_args():
     #parser.add_argument('--test', type=str, default='no', help='zsl or gzsl or no')
     parser.add_argument('--zsl_para', type=str, default=False)
     parser.add_argument('--gzsl_para', type=str, default=False)
-    parser.add_argument('--seen_para', type=str, default=False)
+    parser.add_argument(
+        '--seen_para',
+        type=str,
+        default=False,
+        help=(
+            'evaluate a validation-selected checkpoint on the complete '
+            'seen-label test split using split-local class prototypes'
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -164,11 +172,15 @@ def main():
     unify_seed_device(cfg, int(args.seednumber), args.deterministic, cfg.device,args)
     cfg.seednumber = int(args.seednumber)
 
-    if args.seen_para:  # seen-label test
+    if args.seen_para:  # Complete seen-label test, after validation selection.
         train_dataset = build_dataset(cfg.data.train)
         attach_kg_vocab_to_model(cfg, train_dataset)
         cfg.model.rightmodel.input_dim = train_dataset.input_dim
         cfg.model.seen_labels = train_dataset.current_dataset_eventid_uni
+        # Use zsl_test deliberately: its labels, class prototypes, and KG tokens
+        # are all indexed in the test split's local class order.  test_seen has
+        # zsl_mode='train', whose prototype order differs for S0 (195/197 class
+        # positions), and therefore cannot be substituted without remapping.
         seen_test_dataset = build_dataset(cfg.data.zsl_test)
         cfg.model.rightmodel.output_dim = seen_test_dataset.dim
         cfg.model.zsl_labels = seen_test_dataset.current_dataset_eventid_uni
