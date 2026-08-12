@@ -91,6 +91,14 @@ class EvidenceDiagnosticsAccumulator:
             self.values["selected_valid_pair_count"].append(
                 real_mask.float().sum(dim=-1).mean().cpu()
             )
+            if valid_count is not None:
+                selected_count = real_mask.float().sum(dim=-1)
+                selection_fraction = selected_count / valid_count.detach().float().unsqueeze(
+                    1
+                ).clamp_min(1)
+                self.values["pair_selection_fraction"].append(
+                    selection_fraction.mean().cpu()
+                )
             if real_mask.any():
                 selected_positions = indices[real_mask].float()
                 self.values["selected_original_position_mean"].append(
@@ -181,14 +189,22 @@ class EvidenceDiagnosticsAccumulator:
             self.gate_count_by_class += gate.size(0)
         drug_selection = diagnostics.get("pharmacophore_drug_selection")
         if drug_selection is not None:
-            self.values["selected_valid_pair_count"].append(
+            selected_count = (
                 drug_selection["pair_mask"][..., :-1]
                 .detach()
                 .float()
                 .sum(dim=-1)
-                .mean()
-                .cpu()
             )
+            self.values["selected_valid_pair_count"].append(
+                selected_count.mean().cpu()
+            )
+            if valid_count is not None:
+                selection_fraction = selected_count / valid_count.detach().float().unsqueeze(
+                    1
+                ).clamp_min(1)
+                self.values["pair_selection_fraction"].append(
+                    selection_fraction.mean().cpu()
+                )
             num_classes = drug_selection["selected_types_a"].size(1)
             for side in ("a", "b"):
                 source_types = drug_selection[f"source_types_{side}"].detach().cpu()
