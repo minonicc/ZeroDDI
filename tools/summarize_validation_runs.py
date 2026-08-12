@@ -51,19 +51,36 @@ def better(candidate, incumbent):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", nargs=2, action="append", metavar=("NAME", "LOG"), required=True)
+    parser.add_argument(
+        "--expected-epochs",
+        type=int,
+        help="fail unless every run contains this many completed validation epochs",
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     summary = []
     for name, path in args.run:
         epochs = parse_log(path)
+        if args.expected_epochs is not None and len(epochs) != args.expected_epochs:
+            raise RuntimeError(
+                f"{name} has {len(epochs)} completed validation epochs in {path}; "
+                f"expected {args.expected_epochs}"
+            )
         best = None
         for row in epochs:
             if better(row, best):
                 best = row
         if best is None:
             raise RuntimeError(f"No completed validation epoch in {path}")
-        summary.append({"experiment": name, "log": path, **best})
+        summary.append(
+            {
+                "experiment": name,
+                "log": path,
+                "completed_epochs": len(epochs),
+                **best,
+            }
+        )
 
     with open(args.output, "w", newline="", encoding="utf-8") as output_file:
         writer = csv.DictWriter(
