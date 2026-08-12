@@ -234,6 +234,15 @@ def train_model(model, datasets, cfg):
                     best_seen_metrics = seen_metrics
                     seen_best_epoch = epoch
                     seen_best_model = copy.deepcopy(model.state_dict())
+                    # Persist every validation improvement so a long run keeps
+                    # its best checkpoint even if it ends before the next
+                    # periodic snapshot or the normal final save.
+                    torch.save(seen_best_model, cfg.model_parameter_best)
+                    logger.info(
+                        "Saved improved validation checkpoint at epoch %d to %s",
+                        epoch + 1,
+                        cfg.model_parameter_best,
+                    )
             alpha = getattr(model.Leftmodel, "fixed_substructure_alpha", None)
             if alpha is not None:
                 alpha_value = float(alpha.detach().cpu())

@@ -11,6 +11,11 @@
   standard full run: 100 epochs.
 - Model selection uses the complete validation split and compares Macro-F1,
   then Kappa and ACC when Macro-F1 differs by less than 0.001.
+- New validation improvements are persisted immediately to the configured best
+  checkpoint path; periodic epoch snapshots and the final save remain as
+  additional recovery points. Runs launched before this change retain the
+  original every-20-epoch/final persistence schedule but use the same selection
+  rule.
 - Test is not invoked by the training path. It is reserved for a selected
   validation checkpoint via the explicit evaluation path.
 - The explicit S0 seen-label test path intentionally builds `data.zsl_test`:
