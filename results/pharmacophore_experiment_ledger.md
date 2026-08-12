@@ -86,6 +86,16 @@ The Struct comparisons all apply this removal consistently.
 | T2-64 / T3-128 / T2-256 | implemented, CPU smoke passed | Engineering templates; formal base waits for stage-two winner |
 | D3-12 / D3-16 | D3-12 optimized limited-step GPU debug passed | Earlier debug used provisional mean pooling and proves execution only; controlled templates now retain inherited pooling |
 
+The Struct-S4 alpha evidence is end-to-end rather than inferred from source
+alone. Its effective config records `fixed_substructure_alpha_init=0.0`; the
+three GPU debug epochs log 0.001021, 0.001266, and 0.003576. The
+validation-selected checkpoint contains the registered state-dict key
+`Leftmodel.fixed_substructure_alpha` with value 0.0010207274463027716, matching
+the best epoch's log. Since the training optimizer is constructed from all
+`model.named_parameters()`, the nonzero trajectory proves the parameter was in
+the optimizer, received a gradient through the residual path, was updated, and
+survived checkpoint serialization.
+
 The 5-epoch stage-one debug metrics are saved in `stage1_debug_5ep.csv`.
 They only establish correct execution and decreasing loss; they are not used for
 method selection.
