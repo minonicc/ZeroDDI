@@ -9,7 +9,11 @@ from pathlib import Path
 
 EPOCH_RE = re.compile(r"epoch is (\d+) \|\|")
 ALPHA_RE = re.compile(r"fixed_substructure_alpha:([0-9.eE+-]+)")
-ARRAY_FIELDS = ("gate_mean_by_class", "drug_topk_type_retention")
+ARRAY_FIELDS = (
+    "gate_mean_by_class",
+    "gate_histogram_10bin",
+    "drug_topk_type_retention",
+)
 
 
 def load_diagnostics(path):

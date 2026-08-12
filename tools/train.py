@@ -44,6 +44,10 @@ class EvidenceDiagnosticsAccumulator:
         self.values = defaultdict(list)
         self.gate_sum_by_class = None
         self.gate_count_by_class = 0
+        self.gate_histogram = torch.zeros(10, dtype=torch.float64)
+        self.gate_value_count = 0
+        self.gate_near_zero_count = 0
+        self.gate_near_one_count = 0
         self.drug_type_selected = torch.zeros(6, dtype=torch.float64)
         self.drug_type_available = torch.zeros(6, dtype=torch.float64)
 
@@ -85,6 +89,13 @@ class EvidenceDiagnosticsAccumulator:
             gate = gate.detach().float().squeeze(-1)
             self.values["gate_mean"].append(gate.mean().cpu())
             self.values["gate_std"].append(gate.std(unbiased=False).cpu())
+            gate_cpu = gate.cpu()
+            self.gate_histogram += torch.histc(
+                gate_cpu, bins=10, min=0.0, max=1.0
+            ).double()
+            self.gate_value_count += gate_cpu.numel()
+            self.gate_near_zero_count += int((gate_cpu <= 0.05).sum())
+            self.gate_near_one_count += int((gate_cpu >= 0.95).sum())
             class_sum = gate.sum(dim=0).cpu()
             self.gate_sum_by_class = (
                 class_sum if self.gate_sum_by_class is None
@@ -125,6 +136,16 @@ class EvidenceDiagnosticsAccumulator:
             summary["gate_mean_by_class"] = (
                 self.gate_sum_by_class / self.gate_count_by_class
             ).tolist()
+        if self.gate_value_count:
+            summary["gate_histogram_10bin"] = (
+                self.gate_histogram / self.gate_value_count
+            ).tolist()
+            summary["gate_fraction_le_0_05"] = (
+                self.gate_near_zero_count / self.gate_value_count
+            )
+            summary["gate_fraction_ge_0_95"] = (
+                self.gate_near_one_count / self.gate_value_count
+            )
         if self.drug_type_available.sum() > 0:
             summary["drug_topk_type_retention"] = (
                 self.drug_type_selected / self.drug_type_available.clamp_min(1)
