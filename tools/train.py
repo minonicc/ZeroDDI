@@ -73,14 +73,24 @@ class EvidenceDiagnosticsAccumulator:
             self.values["null_token_weight"].append(probability[..., -1].mean().cpu())
         valid_count = diagnostics.get("pharmacophore_valid_pair_count")
         if valid_count is not None:
-            self.values["valid_pair_count"].append(
+            self.values["available_pair_count"].append(
                 valid_count.detach().float().mean().cpu()
             )
+            if (
+                diagnostics.get("pharmacophore_selection_indices") is None
+                and diagnostics.get("pharmacophore_drug_selection") is None
+            ):
+                self.values["valid_pair_count"].append(
+                    valid_count.detach().float().mean().cpu()
+                )
         selection_indices = diagnostics.get("pharmacophore_selection_indices")
         selection_mask = diagnostics.get("pharmacophore_selection_mask")
         if selection_indices is not None and selection_mask is not None:
             real_mask = selection_mask[..., :selection_indices.size(-1)].detach()
             indices = selection_indices.detach()
+            self.values["selected_valid_pair_count"].append(
+                real_mask.float().sum(dim=-1).mean().cpu()
+            )
             if real_mask.any():
                 selected_positions = indices[real_mask].float()
                 self.values["selected_original_position_mean"].append(
@@ -171,7 +181,7 @@ class EvidenceDiagnosticsAccumulator:
             self.gate_count_by_class += gate.size(0)
         drug_selection = diagnostics.get("pharmacophore_drug_selection")
         if drug_selection is not None:
-            self.values["valid_pair_count"].append(
+            self.values["selected_valid_pair_count"].append(
                 drug_selection["pair_mask"][..., :-1]
                 .detach()
                 .float()
