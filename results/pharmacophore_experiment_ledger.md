@@ -235,3 +235,13 @@ triples, validation-only preselection rows, test-only final rows, and explicit
 checkpoint paths for running formal experiments. Superseded engineering runs
 and their required controlled reruns therefore remain separate machine-readable
 records.
+
+After all formal logs pass the exact 100-epoch completeness check,
+`tools/select_validation_winner.py` converts that validation summary into an
+auditable JSON decision. It forms the strict Macro-F1 band using
+`max(Macro-F1) - candidate < 0.001`, then resolves candidates in that band by
+Kappa and ACC. It also flags a selected run whose Macro-F1 gain accompanies
+lower Kappa and ACC for explicit trade-off review. The decision consumes no
+test metrics and does not mutate or unlock dependent configs: the winner still
+has to be reviewed, rebased into the Struct templates, audited, and only then
+have the provisional dependency marker removed.
