@@ -55,6 +55,15 @@ ACC:0.7, Kappa:0.6, Macro-F1:0.5
         assert "at most 5" in str(error)
     else:
         raise AssertionError("A provisional screen run was accepted")
+    try:
+        enforce_provisional_run_limit(
+            GuardConfig(provisional_dependency="upstream_winner", num_epochs=3),
+            evaluation_requested=True,
+        )
+    except RuntimeError as error:
+        assert "checkpoint evaluation is disabled" in str(error)
+    else:
+        raise AssertionError("Provisional checkpoint evaluation was accepted")
     enforce_provisional_run_limit(GuardConfig(num_epochs=100))
     print("Validation selection smoke test passed")
 

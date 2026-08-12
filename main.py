@@ -130,7 +130,12 @@ def main():
         if args.max_train_steps <= 0:
             raise ValueError('--max-train-steps must be positive')
         cfg.max_train_steps_per_epoch = args.max_train_steps
-    enforce_provisional_run_limit(cfg)
+    enforce_provisional_run_limit(
+        cfg,
+        evaluation_requested=bool(
+            args.zsl_para or args.gzsl_para or args.seen_para
+        ),
+    )
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True

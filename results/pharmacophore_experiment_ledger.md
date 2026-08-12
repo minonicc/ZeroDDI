@@ -149,6 +149,11 @@ removed after winner lock and config re-audit. Stage-three templates carry the
 analogous `stage2_validation_winner` guard. A real CLI smoke invocation confirms
 that a provisional Struct-S3 50-epoch request fails before dataset/model build,
 while guarded runs of at most five epochs and unguarded formal configs pass.
+Provisional configs also reject all explicit checkpoint-evaluation modes even
+when `--max-epochs` is lowered to a debug value, closing a route that could
+otherwise expose test metrics before validation winner lock. After winner lock,
+the selected config is rebased and audited and its dependency marker is removed;
+only then can the explicit final-evaluation path run.
 
 The 5-epoch stage-one debug metrics are saved in `stage1_debug_5ep.csv`.
 They only establish correct execution and decreasing loss; they are not used for
