@@ -108,4 +108,13 @@ Epoch-level evidence diagnostics can be flattened with
 `tools/summarize_pharmacophore_diagnostics.py`. The script combines diagnostics
 JSONL with alpha values from training logs, preserves class/type arrays as JSON,
 and adds mean, standard deviation, minimum, and maximum summaries for direct
-run-to-run comparison.
+run-to-run comparison. New runs also record a normalized 10-bin gate histogram
+and the fractions at or below 0.05 and at or above 0.95 so gate saturation can
+be detected directly. Final per-class CSV files include both the split-local
+class index and the corresponding DDIE event ID.
+
+The machine-readable unified table is `pharmacophore_results.csv`. It keeps
+historical test references, validation screens, formal validation runs, and
+eventual final tests in separate `metric_split` / `run_level` fields. Formal
+summaries use `tools/summarize_validation_runs.py --expected-epochs 100`, which
+refuses to summarize an incomplete run as a finished 100-epoch result.
