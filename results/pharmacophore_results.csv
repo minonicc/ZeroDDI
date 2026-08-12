@@ -1,0 +1,22 @@
+experiment,phase,run_level,status,metric_split,seed,max_epochs,best_epoch,ACC,Kappa,Macro-F1,config,commit,physical_gpu,log,checkpoint,change
+B0,historical,reference,provided,test,42,100,,0.927252,0.920359,0.840984,,,,,,original best model
+P0,historical,reference,provided,test,42,100,,0.925631,0.918534,0.843648,,,,,,128 pairs; sum pooling; no gate
+P4,historical,reference,provided,test,42,100,,0.920547,0.913024,0.833668,,,,,,512 pairs; mean pooling; no gate
+P5,historical,reference,provided,test,42,100,,0.920433,0.912914,0.843138,,,,,,512 pairs; mean pooling; gate
+P1,stage1,debug,complete,validation,42,5,5,0.678512,0.646770,0.194286,configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py,2f2ca96,4,work_dirs/debug_p1_5ep/20260811_174419.log,,128 pairs; mean pooling; no gate
+P2,stage1,debug,complete,validation,42,5,5,0.690156,0.659169,0.190971,configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py,2f2ca96,6,work_dirs/debug_p2_5ep/20260811_174419.log,,512 pairs; sum pooling; no gate
+P3,stage1,debug,complete,validation,42,5,5,0.699644,0.670486,0.215585,configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py,2f2ca96,7,work_dirs/debug_p3_5ep/20260811_174418.log,,128 pairs; sum pooling; gate
+P1,stage1,screen50,complete,validation,42,50,49,0.901640,0.892267,0.740629,configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py,88a5e2f,4,work_dirs/screen50_p1/20260811_195102.log,,128 pairs; mean pooling; no gate
+P2,stage1,screen50,complete,validation,42,50,49,0.901362,0.891847,0.726708,configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py,88a5e2f,6,work_dirs/screen50_p2/20260811_195103.log,,512 pairs; sum pooling; no gate
+P3,stage1,screen50,complete,validation,42,50,50,0.895026,0.885096,0.762781,configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py,88a5e2f,7,work_dirs/screen50_p3/20260811_195841.log,,128 pairs; sum pooling; gate
+P1,stage1,formal100,running,validation,42,100,,,,,configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py,78b0cef,4,work_dirs/formal100_p1/20260812_115822.log,work_dirs/formal100_p1/model_parameter/model_best_epoch100_seen42.pkl,128 pairs; mean pooling; no gate
+P2,stage1,formal100,running,validation,42,100,,,,,configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py,78b0cef,6,work_dirs/formal100_p2/20260812_115846.log,work_dirs/formal100_p2/model_parameter/model_best_epoch100_seen42.pkl,512 pairs; sum pooling; no gate
+P3,stage1,formal100,running,validation,42,100,,,,,configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py,78b0cef,7,work_dirs/formal100_p3/20260812_115857.log,work_dirs/formal100_p3/model_parameter/model_best_epoch100_seen42.pkl,128 pairs; sum pooling; gate
+Struct-S1,stage2,debug,pending,validation,42,3,,,,,configs/new_s0_struct_s1_pharmacophore_replaces_substructure.py,afd46c5,,,,remove queried substructure; retain P3 pharmacophore and KG
+Struct-S3,stage2,debug,pending,validation,42,3,,,,,configs/new_s0_struct_s3_fixed_substructure_pharmacophore.py,88a5e2f,,,,fixed substructure base plus P3 pharmacophore and KG
+Struct-S4,stage2,debug,complete,validation,42,3,3,,,,configs/new_s0_struct_s4_fixed_substructure.py,daa87a1,4,work_dirs/debug_struct_s4_3ep_100steps/20260811_193119.log,,fixed substructure base and KG; no pharmacophore
+T2-64,stage3,debug,pending,validation,42,3,,,,,configs/new_s0_pharmacophore_t2_top64.py,5e0ee29,,,,candidate-specific pair Top-64
+T3-128,stage3,debug,pending,validation,42,3,,,,,configs/new_s0_pharmacophore_t3_top128.py,5e0ee29,,,,candidate-specific pair Top-128
+T2-256,stage3,debug,pending,validation,42,3,,,,,configs/new_s0_pharmacophore_t2_top256.py,5e0ee29,,,,candidate-specific pair Top-256
+D3-12,stage3,debug,complete,validation,42,3,,,,,configs/new_s0_pharmacophore_d3_drug_top12.py,04b68de,4,work_dirs/debug_d3_top12_optimized_3ep_5steps/20260811_194223.log,,candidate-specific per-drug Top-12 then Cartesian pairs; five steps per epoch engineering check
+D3-16,stage3,debug,pending,validation,42,3,,,,,configs/new_s0_pharmacophore_d3_drug_top16.py,5e0ee29,,,,candidate-specific per-drug Top-16 then Cartesian pairs
