@@ -355,6 +355,36 @@ def main():
         is shared_pair_encoder
     )
 
+    class SharedD3Wrapper(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.left_pair_encoder = SharedPairEncoder()
+            self.matcher = ReverseAttentionCandidateMatcher(
+                pair_dim=pair_dim,
+                evidence_dim=evidence_dim,
+                event_dim=event_dim,
+                hidden_dim=hidden_dim,
+                use_pharmacophore_evidence=True,
+                pharmacophore_evidence_dim=evidence_dim,
+                pharmacophore_drug_top_k=3,
+                pharmacophore_shared_pair_encoder=self.left_pair_encoder,
+            )
+
+    wrapper = SharedD3Wrapper()
+    state = wrapper.state_dict()
+    assert any(name.startswith("left_pair_encoder.pair_mlp.") for name in state)
+    assert not any(
+        "matcher.pharmacophore_drug_selector.pair_mlp" in name for name in state
+    )
+    restored = SharedD3Wrapper()
+    incompatible = restored.load_state_dict(state)
+    assert not incompatible.missing_keys
+    assert not incompatible.unexpected_keys
+    assert (
+        restored.matcher.pharmacophore_drug_selector._shared_pair_encoder
+        is restored.left_pair_encoder
+    )
+
     deterministic_drug_selector = CandidateSpecificDrugPairSelector(
         atom_dim=2,
         event_dim=2,

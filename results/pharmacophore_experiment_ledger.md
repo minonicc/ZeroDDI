@@ -99,7 +99,10 @@ pharmacophore type embedding, pair MLP, and LayerNorm rather than initializing a
 second pair encoder inside the selector. A deterministic backward smoke check
 proves that D3 loss gradients reach that registered shared encoder, while the
 selector owns only the new DDIE-guided node-selection and pair-aggregation
-parameters.
+parameters. A save/load smoke check also verifies that the shared pair encoder
+appears only once in the parent state dict, strict loading has no missing or
+unexpected keys, and the restored selector references its restored Leftmodel
+encoder.
 
 Pair-level Top-K must rank the complete real pair set, so the T2/T3 templates
 intentionally set `pharmacophore_max_pairs=None`; silently capping them would
