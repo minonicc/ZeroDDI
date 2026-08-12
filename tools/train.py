@@ -389,7 +389,14 @@ def train_model(model, datasets, cfg):
 
             if 'seen' in eval_modes:
                 seen_metrics = evaluate(
-                    model, datasets[1], logger, cfg, "seen", "test", return_metrics=True
+                    model,
+                    datasets[1],
+                    logger,
+                    cfg,
+                    "seen",
+                    "test",
+                    return_metrics=True,
+                    compute_pr_auc=False,
                 )
                 seen_acc = seen_metrics[cfg.get("selection_metric", "Macro-F1")]
                 if is_better_checkpoint(seen_metrics, best_seen_metrics):
@@ -477,6 +484,7 @@ def evaluate(
     aaa="test",
     visualize_acc=False,
     return_metrics=False,
+    compute_pr_auc=True,
 ):
 
     eval_sampler = SequentialSampler(dataset)
@@ -557,7 +565,9 @@ def evaluate(
                 Val_Evaluation["Top2Acc"],
                 Val_Evaluation["Top3Acc"],
                 Val_Evaluation["Top5Acc"]))
-        cls_metrics = classification_metrics(preds, gt_emb_ids)
+        cls_metrics = classification_metrics(
+            preds, gt_emb_ids, compute_pr_auc=compute_pr_auc
+        )
         log_classification_metrics(logger, cls_metrics)
         if visualize_acc:
             save_classification_details(
@@ -611,7 +621,9 @@ def evaluate(
                 two_classify_seenacc,
                 two_classify_unseenacc,
                 bi_acc))
-        cls_metrics = classification_metrics(preds, gt_emb_ids)
+        cls_metrics = classification_metrics(
+            preds, gt_emb_ids, compute_pr_auc=compute_pr_auc
+        )
         log_classification_metrics(logger, cls_metrics)
         logger.info("************************\n")
 
@@ -620,7 +632,7 @@ def evaluate(
 
 
 
-def classification_metrics(logits, ids):
+def classification_metrics(logits, ids, compute_pr_auc=True):
     probabilities = softmax(logits, axis=1)
     preds = np.argmax(logits, axis=1)
     ids = np.asarray(ids)
@@ -634,31 +646,32 @@ def classification_metrics(logits, ids):
         "Macro-Recall": recall_score(ids, preds, average="macro", zero_division=0),
     }
 
-    class_ids = np.arange(probabilities.shape[1])
-    y_true = (ids[:, None] == class_ids[None, :]).astype(int)
-    present = y_true.sum(axis=0) > 0
-    if present.any():
-        metrics["PR-AUC-macro"] = average_precision_score(
-            y_true[:, present],
-            probabilities[:, present],
-            average="macro",
-        )
-        metrics["PR-AUC-micro"] = average_precision_score(
-            y_true[:, present],
-            probabilities[:, present],
-            average="micro",
-        )
-    else:
-        metrics["PR-AUC-macro"] = float("nan")
-        metrics["PR-AUC-micro"] = float("nan")
+    if compute_pr_auc:
+        class_ids = np.arange(probabilities.shape[1])
+        y_true = (ids[:, None] == class_ids[None, :]).astype(int)
+        present = y_true.sum(axis=0) > 0
+        if present.any():
+            metrics["PR-AUC-macro"] = average_precision_score(
+                y_true[:, present],
+                probabilities[:, present],
+                average="macro",
+            )
+            metrics["PR-AUC-micro"] = average_precision_score(
+                y_true[:, present],
+                probabilities[:, present],
+                average="micro",
+            )
+        else:
+            metrics["PR-AUC-macro"] = float("nan")
+            metrics["PR-AUC-micro"] = float("nan")
 
     return metrics
 
 
 def log_classification_metrics(logger, metrics):
-    logger.info(
+    message = (
         "ACC:%f, Kappa:%f, Macro-F1:%f, Weighted-F1:%f, "
-        "Macro-Precision:%f, Macro-Recall:%f, PR-AUC-macro:%f, PR-AUC-micro:%f"
+        "Macro-Precision:%f, Macro-Recall:%f"
         % (
             metrics["ACC"],
             metrics["Kappa"],
@@ -666,10 +679,16 @@ def log_classification_metrics(logger, metrics):
             metrics["Weighted-F1"],
             metrics["Macro-Precision"],
             metrics["Macro-Recall"],
+        )
+    )
+    if "PR-AUC-macro" in metrics:
+        message += ", PR-AUC-macro:%f, PR-AUC-micro:%f" % (
             metrics["PR-AUC-macro"],
             metrics["PR-AUC-micro"],
         )
-    )
+    else:
+        message += ", PR-AUC:skipped during checkpoint selection"
+    logger.info(message)
 
 
 def save_classification_details(
