@@ -52,6 +52,8 @@ class EvidenceDiagnosticsAccumulator:
         self.drug_type_available = torch.zeros(6, dtype=torch.float64)
         self.pair_type_selected = torch.zeros(36, dtype=torch.float64)
         self.pair_type_available = torch.zeros(36, dtype=torch.float64)
+        self.selection_position_histogram = torch.zeros(5, dtype=torch.float64)
+        self.selection_position_count = 0
 
     def update(self, diagnostics):
         if not diagnostics:
@@ -86,6 +88,18 @@ class EvidenceDiagnosticsAccumulator:
                 self.values["fixed128_topk_overlap"].append(
                     (selected_positions < 128).float().mean().cpu()
                 )
+                position_bins = torch.tensor(
+                    [64, 128, 256, 512],
+                    dtype=selected_positions.dtype,
+                    device=selected_positions.device,
+                )
+                position_bucket = torch.bucketize(
+                    selected_positions, position_bins, right=True
+                )
+                self.selection_position_histogram += torch.bincount(
+                    position_bucket.long(), minlength=5
+                ).double().cpu()
+                self.selection_position_count += selected_positions.numel()
             pair_types = diagnostics.get("pharmacophore_pair_types")
             if pair_types is not None:
                 pair_types = pair_types.detach()
@@ -194,6 +208,10 @@ class EvidenceDiagnosticsAccumulator:
         if self.pair_type_available.sum() > 0:
             summary["pair_topk_type_retention"] = (
                 self.pair_type_selected / self.pair_type_available.clamp_min(1)
+            ).tolist()
+        if self.selection_position_count:
+            summary["selected_position_histogram_64_128_256_512"] = (
+                self.selection_position_histogram / self.selection_position_count
             ).tolist()
         return summary
 

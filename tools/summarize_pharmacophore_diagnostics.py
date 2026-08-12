@@ -13,6 +13,7 @@ ARRAY_FIELDS = (
     "gate_mean_by_class",
     "gate_histogram_10bin",
     "pair_topk_type_retention",
+    "selected_position_histogram_64_128_256_512",
     "drug_topk_type_retention",
 )
 
