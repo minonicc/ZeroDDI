@@ -41,7 +41,8 @@ history = defaultdict(list)
 
 class EvidenceDiagnosticsAccumulator:
     def __init__(self):
-        self.values = defaultdict(list)
+        self.scalar_sums = defaultdict(float)
+        self.scalar_counts = defaultdict(int)
         self.gate_sum_by_class = None
         self.gate_count_by_class = 0
         self.gate_histogram = torch.zeros(10, dtype=torch.float64)
@@ -58,6 +59,11 @@ class EvidenceDiagnosticsAccumulator:
         self.selection_position_histogram = torch.zeros(5, dtype=torch.float64)
         self.selection_position_count = 0
 
+    def _accumulate(self, name, values):
+        values = values.detach().double()
+        self.scalar_sums[name] += float(values.sum().cpu())
+        self.scalar_counts[name] += values.numel()
+
     def update(self, diagnostics):
         if not diagnostics:
             return
@@ -65,49 +71,44 @@ class EvidenceDiagnosticsAccumulator:
         if attention is not None:
             probability = attention.detach().float()
             entropy = -(probability * probability.clamp_min(1e-12).log()).sum(dim=-1)
-            self.values["attention_entropy"].append(entropy.mean().cpu())
-            self.values["attention_top1_mass"].append(
-                probability.max(dim=-1).values.mean().cpu()
+            self._accumulate("attention_entropy", entropy)
+            self._accumulate(
+                "attention_top1_mass", probability.max(dim=-1).values
             )
-            self.values["attention_top5_mass"].append(
-                probability.topk(min(5, probability.size(-1)), dim=-1).values.sum(dim=-1).mean().cpu()
+            self._accumulate(
+                "attention_top5_mass",
+                probability.topk(min(5, probability.size(-1)), dim=-1).values.sum(dim=-1),
             )
-            self.values["null_token_weight"].append(probability[..., -1].mean().cpu())
+            self._accumulate("null_token_weight", probability[..., -1])
         valid_count = diagnostics.get("pharmacophore_valid_pair_count")
         if valid_count is not None:
-            self.values["available_pair_count"].append(
-                valid_count.detach().float().mean().cpu()
-            )
+            self._accumulate("available_pair_count", valid_count)
             if (
                 diagnostics.get("pharmacophore_selection_indices") is None
                 and diagnostics.get("pharmacophore_drug_selection") is None
             ):
-                self.values["valid_pair_count"].append(
-                    valid_count.detach().float().mean().cpu()
-                )
+                self._accumulate("valid_pair_count", valid_count)
         selection_indices = diagnostics.get("pharmacophore_selection_indices")
         selection_mask = diagnostics.get("pharmacophore_selection_mask")
         if selection_indices is not None and selection_mask is not None:
             real_mask = selection_mask[..., :selection_indices.size(-1)].detach()
             indices = selection_indices.detach()
-            self.values["selected_valid_pair_count"].append(
-                real_mask.float().sum(dim=-1).mean().cpu()
+            self._accumulate(
+                "selected_valid_pair_count", real_mask.float().sum(dim=-1)
             )
             if valid_count is not None:
                 selected_count = real_mask.float().sum(dim=-1)
                 selection_fraction = selected_count / valid_count.detach().float().unsqueeze(
                     1
                 ).clamp_min(1)
-                self.values["pair_selection_fraction"].append(
-                    selection_fraction.mean().cpu()
-                )
+                self._accumulate("pair_selection_fraction", selection_fraction)
             if real_mask.any():
                 selected_positions = indices[real_mask].float()
-                self.values["selected_original_position_mean"].append(
-                    selected_positions.mean().cpu()
+                self._accumulate(
+                    "selected_original_position_mean", selected_positions
                 )
-                self.values["fixed128_topk_overlap"].append(
-                    (selected_positions < 128).float().mean().cpu()
+                self._accumulate(
+                    "fixed128_topk_overlap", (selected_positions < 128).float()
                 )
                 position_bins = torch.tensor(
                     [64, 128, 256, 512],
@@ -155,7 +156,7 @@ class EvidenceDiagnosticsAccumulator:
                 coverage = selected_presence.sum(dim=-1).float() / available_presence.sum(
                     dim=-1
                 ).clamp_min(1)
-                self.values["pair_topk_type_coverage"].append(coverage.mean().cpu())
+                self._accumulate("pair_topk_type_coverage", coverage)
                 self.pair_type_available += (
                     available_counts.sum(dim=0).double().cpu() * num_candidates
                 )
@@ -197,16 +198,12 @@ class EvidenceDiagnosticsAccumulator:
                 .float()
                 .sum(dim=-1)
             )
-            self.values["selected_valid_pair_count"].append(
-                selected_count.mean().cpu()
-            )
+            self._accumulate("selected_valid_pair_count", selected_count)
             if valid_count is not None:
                 selection_fraction = selected_count / valid_count.detach().float().unsqueeze(
                     1
                 ).clamp_min(1)
-                self.values["pair_selection_fraction"].append(
-                    selection_fraction.mean().cpu()
-                )
+                self._accumulate("pair_selection_fraction", selection_fraction)
             num_classes = drug_selection["selected_types_a"].size(1)
             for side in ("a", "b"):
                 source_types = drug_selection[f"source_types_{side}"].detach().cpu()
@@ -223,9 +220,9 @@ class EvidenceDiagnosticsAccumulator:
 
     def summarize(self):
         summary = {
-            name: float(torch.stack(values).mean())
-            for name, values in self.values.items()
-            if values
+            name: total / self.scalar_counts[name]
+            for name, total in self.scalar_sums.items()
+            if self.scalar_counts[name]
         }
         if self.gate_sum_by_class is not None and self.gate_count_by_class:
             summary["gate_mean_by_class"] = (

@@ -136,10 +136,11 @@ JSONL with alpha values from training logs, preserves class/type arrays as JSON,
 and adds mean, standard deviation, minimum, and maximum summaries for direct
 run-to-run comparison. New runs also record a normalized 10-bin gate histogram
 and the fractions at or below 0.05 and at or above 0.95 so gate saturation can
-be detected directly. Gate mean and population standard deviation use all gate
-values with exact count weighting, so a short final batch is not given the same
-weight as a full batch. Final per-class CSV files include both the split-local
-class index and the corresponding DDIE event ID.
+be detected directly. All scalar diagnostics use exact element-count weighting,
+so a short final batch is not given the same weight as a full batch; gate
+population standard deviation is likewise computed from global sums and squared
+sums. Final per-class CSV files include both the split-local class index and the
+corresponding DDIE event ID.
 
 The machine-readable unified table is `pharmacophore_results.csv`. It keeps
 historical test references, validation screens, formal validation runs, and
