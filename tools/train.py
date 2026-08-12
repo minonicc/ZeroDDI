@@ -487,12 +487,17 @@ def evaluate(
             diagnostic_summary["fixed_substructure_alpha"] = float(
                 alpha.detach().cpu()
             )
-        diagnostic_summary["class_event_ids"] = [
-            embid2eventid.get(class_id, class_id)
-            if hasattr(embid2eventid, "get")
-            else embid2eventid[class_id]
-            for class_id in range(preds.shape[1])
-        ]
+        class_event_ids = []
+        for class_id in range(preds.shape[1]):
+            event_id = (
+                embid2eventid.get(class_id, class_id)
+                if hasattr(embid2eventid, "get")
+                else embid2eventid[class_id]
+            )
+            if isinstance(event_id, np.generic):
+                event_id = event_id.item()
+            class_event_ids.append(event_id)
+        diagnostic_summary["class_event_ids"] = class_event_ids
         diagnostic_path = osp.join(
             cfg.work_dir,
             f"{mode}_evidence_diagnostics_seed{cfg.seednumber}.json",
