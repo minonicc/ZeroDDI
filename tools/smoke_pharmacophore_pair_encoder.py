@@ -76,10 +76,42 @@ def run_case(pooling, batch_pair_mlp):
     assert drug_b.node_representation.grad is not None
 
 
+def run_batched_equivalence(pooling):
+    reference = PharmacophorePairEncoder(
+        atom_dim=2,
+        output_dim=4,
+        hidden_dim=4,
+        type_dim=2,
+        max_pairs=3,
+        pooling=pooling,
+        dropout=0.0,
+        batch_pair_mlp=False,
+    )
+    batched = PharmacophorePairEncoder(
+        atom_dim=2,
+        output_dim=4,
+        hidden_dim=4,
+        type_dim=2,
+        max_pairs=3,
+        pooling=pooling,
+        dropout=0.0,
+        batch_pair_mlp=True,
+    )
+    batched.load_state_dict(reference.state_dict())
+    reference.eval()
+    batched.eval()
+    inputs = make_inputs()
+    reference_tokens, reference_mask = reference(*inputs)
+    batched_tokens, batched_mask = batched(*inputs)
+    assert torch.equal(reference_mask, batched_mask)
+    assert torch.allclose(reference_tokens, batched_tokens, atol=1e-7)
+
+
 def main():
     for pooling in ("sum", "mean"):
         for batch_pair_mlp in (False, True):
             run_case(pooling, batch_pair_mlp)
+        run_batched_equivalence(pooling)
     print("pharmacophore pair encoder smoke test ok")
 
 
