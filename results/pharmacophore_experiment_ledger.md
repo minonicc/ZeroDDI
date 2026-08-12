@@ -86,6 +86,16 @@ The Struct comparisons all apply this removal consistently.
 | T2-64 / T3-128 / T2-256 | implemented, CPU smoke passed | Engineering templates; formal base waits for stage-two winner |
 | D3-12 / D3-16 | D3-12 optimized limited-step GPU debug passed | Earlier debug used provisional mean pooling and proves execution only; controlled templates now retain inherited pooling |
 
+Pair-level Top-K must rank the complete real pair set, so the T2/T3 templates
+intentionally set `pharmacophore_max_pairs=None`; silently capping them would
+change the method. A resource audit of the S0 training rows found 30 / 429137
+pairs above 5000 pharmacophore pairs, 3 above 10000, and 1 at the observed
+maximum of 28424. The current encoder pads a batch to its largest pair set, so
+the controlled 3--5 epoch GPU debug must explicitly cover peak memory. If that
+debug encounters a memory failure, the remedy must be output-equivalent packed
+or chunked processing, not a smaller candidate cap or changed batch size in the
+screen comparison.
+
 The Struct-S4 alpha evidence is end-to-end rather than inferred from source
 alone. Its effective config records `fixed_substructure_alpha_init=0.0`; the
 three GPU debug epochs log 0.001021, 0.001266, and 0.003576. The
