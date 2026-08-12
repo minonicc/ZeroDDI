@@ -45,6 +45,7 @@ class EvidenceDiagnosticsAccumulator:
         self.gate_sum_by_class = None
         self.gate_count_by_class = 0
         self.gate_histogram = torch.zeros(10, dtype=torch.float64)
+        self.gate_histogram_by_class = None
         self.gate_value_count = 0
         self.gate_near_zero_count = 0
         self.gate_near_one_count = 0
@@ -148,6 +149,17 @@ class EvidenceDiagnosticsAccumulator:
             self.gate_histogram += torch.histc(
                 gate_cpu, bins=10, min=0.0, max=1.0
             ).double()
+            gate_bucket = (gate_cpu * 10).long().clamp_(0, 9)
+            class_offsets = torch.arange(gate_cpu.size(1)).view(1, -1) * 10
+            class_histogram = torch.bincount(
+                (gate_bucket + class_offsets).reshape(-1),
+                minlength=gate_cpu.size(1) * 10,
+            ).reshape(gate_cpu.size(1), 10).double()
+            self.gate_histogram_by_class = (
+                class_histogram
+                if self.gate_histogram_by_class is None
+                else self.gate_histogram_by_class + class_histogram
+            )
             self.gate_value_count += gate_cpu.numel()
             self.gate_near_zero_count += int((gate_cpu <= 0.05).sum())
             self.gate_near_one_count += int((gate_cpu >= 0.95).sum())
@@ -194,6 +206,9 @@ class EvidenceDiagnosticsAccumulator:
         if self.gate_value_count:
             summary["gate_histogram_10bin"] = (
                 self.gate_histogram / self.gate_value_count
+            ).tolist()
+            summary["gate_histogram_10bin_by_class"] = (
+                self.gate_histogram_by_class / self.gate_count_by_class
             ).tolist()
             summary["gate_fraction_le_0_05"] = (
                 self.gate_near_zero_count / self.gate_value_count

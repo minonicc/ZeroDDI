@@ -16,6 +16,7 @@ ARRAY_FIELDS = (
     "selected_position_histogram_64_128_256_512",
     "drug_topk_type_retention",
 )
+NESTED_ARRAY_FIELDS = ("gate_histogram_10bin_by_class",)
 PHARMACOPHORE_FAMILIES = (
     "Hydrophobe",
     "Aromatic",
@@ -129,6 +130,9 @@ def main():
                 row["fixed_substructure_alpha"] = alpha_history[epoch]
             for field in ARRAY_FIELDS:
                 summarize_array(row, field)
+            for field in NESTED_ARRAY_FIELDS:
+                if field in row:
+                    row[field] = json.dumps(row[field], separators=(",", ":"))
             for field in row:
                 if field not in field_order:
                     field_order.append(field)
