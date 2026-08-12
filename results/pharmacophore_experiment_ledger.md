@@ -76,3 +76,19 @@ The 50-epoch validation-only screen is saved in
 selection rule, but its ACC and Kappa are lower than P1; the 100-epoch formal
 runs must therefore report all three primary metrics before drawing a final
 conclusion.
+
+## Stage-one formal runs
+
+The three schemes admitted by the predefined screen rule started 100-epoch
+seed-42 formal validation runs on 2026-08-12. Each run uses Adam, learning rate
+0.0001, batch size 128, and validation Macro-F1 checkpoint selection.
+
+| Experiment | Physical GPU | Config | Work directory | Command override |
+|---|---:|---|---|---|
+| P1 | 4 | `configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py` | `work_dirs/formal100_p1` | `--max-epochs 100` |
+| P2 | 6 | `configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py` | `work_dirs/formal100_p2` | `--max-epochs 100` |
+| P3 | 7 | `configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py` | `work_dirs/formal100_p3` | `--max-epochs 100` |
+
+Physical GPU 5 was occupied by an unrelated process and was left untouched.
+All three runs passed initialization and reached at least step 100 of epoch 1
+with finite, decreasing training loss.
