@@ -13,6 +13,7 @@ spec = importlib.util.spec_from_file_location("candidate_matching", MODULE_PATH)
 candidate_matching = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(candidate_matching)
 ReverseAttentionCandidateMatcher = candidate_matching.ReverseAttentionCandidateMatcher
+DDIEGuidedEvidenceSelector = candidate_matching.DDIEGuidedEvidenceSelector
 
 
 def main():
@@ -205,6 +206,40 @@ def main():
     )
     assert torch.all(
         top_k_indices[0][top_k_mask[0, :, :-1]] < 7
+    )
+
+    # Make candidate-specific selection and padding exclusion deterministic.
+    selector = DDIEGuidedEvidenceSelector(
+        evidence_dim=2,
+        event_dim=2,
+        hidden_dim=2,
+        use_null_evidence=True,
+    )
+    with torch.no_grad():
+        for projection in (selector.query, selector.key, selector.value):
+            projection.weight.copy_(torch.eye(2))
+            projection.bias.zero_()
+        selector.null_evidence.zero_()
+    deterministic_events = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+    deterministic_pairs = torch.tensor(
+        [[[2.0, 0.0], [0.0, 2.0], [100.0, 100.0], [50.0, 50.0]]]
+    )
+    deterministic_mask = torch.tensor([[True, True, False, False]])
+    _, deterministic_attention, deterministic_indices, deterministic_valid = selector(
+        deterministic_events,
+        deterministic_pairs,
+        deterministic_mask,
+        top_k=3,
+    )
+    assert deterministic_indices[0, 0, 0].item() == 0
+    assert deterministic_indices[0, 1, 0].item() == 1
+    assert deterministic_valid[0, :, :-1].sum(dim=-1).eq(2).all()
+    assert deterministic_valid[0, :, -1].all()
+    assert not deterministic_valid[0, :, 2].any()
+    assert torch.allclose(
+        deterministic_attention.sum(dim=-1),
+        torch.ones(1, 2),
+        atol=1e-6,
     )
     print("candidate-specific pharmacophore top-k smoke test ok")
 
