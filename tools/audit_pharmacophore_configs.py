@@ -56,6 +56,11 @@ def main():
     struct_s1 = load("new_s0_struct_s1_pharmacophore_replaces_substructure.py")
     struct_s3 = load("new_s0_struct_s3_fixed_substructure_pharmacophore.py")
     struct_s4 = load("new_s0_struct_s4_fixed_substructure.py")
+    top64 = load("new_s0_pharmacophore_t2_top64.py")
+    top128 = load("new_s0_pharmacophore_t3_top128.py")
+    top256 = load("new_s0_pharmacophore_t2_top256.py")
+    drug12 = load("new_s0_pharmacophore_d3_drug_top12.py")
+    drug16 = load("new_s0_pharmacophore_d3_drug_top16.py")
 
     require_differences(
         p1,
@@ -99,12 +104,49 @@ def main():
         },
         "Struct-S3 versus Struct-S4",
     )
+    require_differences(
+        top64,
+        top128,
+        {"model.matching_pharmacophore_top_k", "work_dir"},
+        "pair Top-64 versus Top-128",
+    )
+    require_differences(
+        top128,
+        top256,
+        {"model.matching_pharmacophore_top_k", "work_dir"},
+        "pair Top-128 versus Top-256",
+    )
+    require_differences(
+        drug12,
+        drug16,
+        {"model.matching_pharmacophore_drug_top_k", "work_dir"},
+        "per-drug Top-12 versus Top-16",
+    )
+    require_differences(
+        top128,
+        drug12,
+        {
+            "model.leftmodel.pharmacophore_selection_mode",
+            "model.matching_pharmacophore_drug_top_k",
+            "model.matching_pharmacophore_top_k",
+            "work_dir",
+        },
+        "pair Top-128 versus per-drug Top-12",
+    )
 
     assert struct_s1.model.matching_use_kg_evidence
     assert not struct_s1.model.matching_use_substructure_evidence
     assert struct_s3.model.leftmodel.fixed_substructure_alpha_init == 0.0
     assert not struct_s3.model.leftmodel.use_query_substructure
     assert not struct_s4.model.matching_use_pharmacophore_evidence
+    for config in (top64, top128, top256, drug12, drug16):
+        assert config.model.leftmodel.pharmacophore_max_pairs is None
+        assert config.model.matching_use_pharmacophore_evidence
+    assert top64.model.matching_pharmacophore_top_k == 64
+    assert top128.model.matching_pharmacophore_top_k == 128
+    assert top256.model.matching_pharmacophore_top_k == 256
+    assert drug12.model.matching_pharmacophore_drug_top_k == 12
+    assert drug16.model.matching_pharmacophore_drug_top_k == 16
     print("pharmacophore controlled-config audit ok")
 
 
