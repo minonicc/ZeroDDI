@@ -685,6 +685,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         kg_evidence_mask=None,
         pharmacophore_evidence_tokens=None,
         pharmacophore_evidence_mask=None,
+        pharmacophore_valid_pair_count=None,
         pharmacophore_drug_a_nodes=None,
         pharmacophore_drug_a_types=None,
         pharmacophore_drug_a_mask=None,
@@ -832,9 +833,13 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             "pharmacophore_selection_mask": pharmacophore_selection_mask,
             "pharmacophore_drug_selection": pharmacophore_drug_selection,
             "pharmacophore_valid_pair_count": (
-                pharmacophore_evidence_mask.sum(dim=-1)
-                if pharmacophore_evidence_mask is not None
-                else None
+                pharmacophore_valid_pair_count
+                if pharmacophore_valid_pair_count is not None
+                else (
+                    pharmacophore_evidence_mask.sum(dim=-1)
+                    if pharmacophore_evidence_mask is not None
+                    else None
+                )
             ),
             "pharmacophore_gate": pharmacophore_gate,
             "evidence_gate": evidence_gate,

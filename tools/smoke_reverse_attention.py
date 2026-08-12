@@ -299,6 +299,36 @@ def main():
         atol=1e-6,
     )
 
+    # The production D3 path selects nodes before constructing pairs. It does
+    # not materialize the complete Cartesian product, but still reports the
+    # original available-pair count for coverage diagnostics.
+    available_pair_count = drug_a_mask.sum(dim=-1) * drug_b_mask.sum(dim=-1)
+    direct_drug_top_k_outputs = drug_top_k_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels,
+        pharmacophore_valid_pair_count=available_pair_count,
+        pharmacophore_drug_a_nodes=drug_a_nodes,
+        pharmacophore_drug_a_types=drug_a_types,
+        pharmacophore_drug_a_mask=drug_a_mask,
+        pharmacophore_drug_b_nodes=drug_b_nodes,
+        pharmacophore_drug_b_types=drug_b_types,
+        pharmacophore_drug_b_mask=drug_b_mask,
+        pharmacophore_drug_b_count=drug_b_count,
+    )
+    direct_selection = direct_drug_top_k_outputs["pharmacophore_drug_selection"]
+    assert direct_selection["pair_mask"].shape == (batch_size, num_events, 10)
+    assert torch.equal(
+        direct_drug_top_k_outputs["pharmacophore_valid_pair_count"],
+        available_pair_count,
+    )
+    assert torch.allclose(
+        direct_drug_top_k_outputs["pharmacophore_attention"].sum(dim=-1),
+        torch.ones(batch_size, num_events),
+        atol=1e-6,
+    )
+
     deterministic_drug_selector = CandidateSpecificDrugPairSelector(
         atom_dim=2,
         event_dim=2,

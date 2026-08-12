@@ -237,6 +237,7 @@ class classifier(nn.Module):
         kg_evidence_mask = None
         pharmacophore_evidence_tokens = None
         pharmacophore_evidence_mask = None
+        pharmacophore_valid_pair_count = None
         pharmacophore_pair_types = None
         pharmacophore_drug_inputs = {}
         if kg_evidence is not None:
@@ -257,6 +258,9 @@ class classifier(nn.Module):
             if isinstance(pharmacophore_evidence, dict):
                 pharmacophore_evidence_tokens = pharmacophore_evidence.get("tokens")
                 pharmacophore_evidence_mask = pharmacophore_evidence.get("mask")
+                pharmacophore_valid_pair_count = pharmacophore_evidence.get(
+                    "valid_pair_count"
+                )
                 pharmacophore_pair_types = pharmacophore_evidence.get("pair_types")
                 for name in (
                     "drug_a_nodes",
@@ -284,6 +288,10 @@ class classifier(nn.Module):
             pharmacophore_evidence_mask = pharmacophore_evidence_mask.to(self.device)
         if pharmacophore_pair_types is not None:
             pharmacophore_pair_types = pharmacophore_pair_types.to(self.device)
+        if pharmacophore_valid_pair_count is not None:
+            pharmacophore_valid_pair_count = pharmacophore_valid_pair_count.to(
+                self.device
+            )
         labels = torch.as_tensor(emb_ids, dtype=torch.long, device=self.device)
         outputs = self.ReverseMatcher(
             pair_repr=left_output,
@@ -294,6 +302,7 @@ class classifier(nn.Module):
             kg_evidence_mask=kg_evidence_mask,
             pharmacophore_evidence_tokens=pharmacophore_evidence_tokens,
             pharmacophore_evidence_mask=pharmacophore_evidence_mask,
+            pharmacophore_valid_pair_count=pharmacophore_valid_pair_count,
             **pharmacophore_drug_inputs,
         )
         evidence_diagnostics = {

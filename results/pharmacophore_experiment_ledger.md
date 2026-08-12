@@ -86,6 +86,15 @@ The Struct comparisons all apply this removal consistently.
 | T2-64 / T3-128 / T2-256 | implemented, CPU smoke passed | Engineering templates; formal base waits for stage-two winner |
 | D3-12 / D3-16 | D3-12 optimized limited-step GPU debug passed | Earlier debug used provisional mean pooling and proves execution only; controlled templates now retain inherited pooling |
 
+The current D3 implementation follows the specified operation order exactly:
+it pools each drug's pharmacophore nodes, performs candidate-specific node
+selection, and constructs/encodes only the selected K x K pairs. It no longer
+precomputes the complete Cartesian pair tensor merely to gather the selected
+rows. The original available-pair count is passed separately as a small tensor,
+so coverage and selection-fraction diagnostics retain their full-set
+denominator without the full-set memory cost. The earlier D3-12 engineering
+debug predates this correction and must therefore be rerun before screening.
+
 Pair-level Top-K must rank the complete real pair set, so the T2/T3 templates
 intentionally set `pharmacophore_max_pairs=None`; silently capping them would
 change the method. A resource audit of the S0 training rows found 30 / 429137
