@@ -66,7 +66,9 @@ def main():
         summary.append({"experiment": name, "log": path, **best})
 
     with open(args.output, "w", newline="", encoding="utf-8") as output_file:
-        writer = csv.DictWriter(output_file, fieldnames=summary[0].keys())
+        writer = csv.DictWriter(
+            output_file, fieldnames=summary[0].keys(), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(summary)
     for row in summary:
