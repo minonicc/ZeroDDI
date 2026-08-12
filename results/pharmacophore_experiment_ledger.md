@@ -96,6 +96,22 @@ the best epoch's log. Since the training optimizer is constructed from all
 the optimizer, received a gradient through the residual path, was updated, and
 survived checkpoint serialization.
 
+The fixed-substructure path is also DDIE-independent by construction. In
+`SubExtractor`, the 30 substructure queries are learned model parameters and
+attend only to atom-GNN keys/values; candidate DDIE representations are not an
+input. Each resulting substructure token is normalized, then the token axis is
+mean-pooled before the shared scalar alpha residual is added separately to each
+drug's 300-dimensional global representation. The global and substructure
+representations are both 300-dimensional in the current GNN, so the configured
+identity projection is dimensionally exact; a learned projection is not needed
+for this architecture. Struct-S1 sets `use_sub=False`, so neither this fixed
+path nor the old queried-substructure tokens are computed.
+
+P3 remains only the provisional 50-epoch screen winner for the checked-in
+Struct-S1/S3 templates. Those templates may be used for controlled engineering
+debugs, but must be rebased if the stage-one 100-epoch validation winner changes
+before any Struct screen or formal run is launched.
+
 The 5-epoch stage-one debug metrics are saved in `stage1_debug_5ep.csv`.
 They only establish correct execution and decreasing loss; they are not used for
 method selection.
