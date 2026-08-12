@@ -14,6 +14,7 @@ candidate_matching = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(candidate_matching)
 ReverseAttentionCandidateMatcher = candidate_matching.ReverseAttentionCandidateMatcher
 DDIEGuidedEvidenceSelector = candidate_matching.DDIEGuidedEvidenceSelector
+CandidateSpecificDrugPairSelector = candidate_matching.CandidateSpecificDrugPairSelector
 
 
 def main():
@@ -295,6 +296,58 @@ def main():
     assert torch.allclose(
         drug_top_k_outputs["pharmacophore_attention"].sum(dim=-1),
         torch.ones(batch_size, num_events),
+        atol=1e-6,
+    )
+
+    deterministic_drug_selector = CandidateSpecificDrugPairSelector(
+        atom_dim=2,
+        event_dim=2,
+        pair_dim=2,
+        output_dim=2,
+        top_k=1,
+        use_null_evidence=True,
+    )
+    with torch.no_grad():
+        deterministic_drug_selector.query.weight.copy_(torch.eye(2))
+        deterministic_drug_selector.query.bias.zero_()
+        deterministic_drug_selector.node_key.weight.copy_(torch.eye(2))
+        deterministic_drug_selector.node_key.bias.zero_()
+        deterministic_drug_selector.pair_key.weight.zero_()
+        deterministic_drug_selector.pair_key.bias.zero_()
+        deterministic_drug_selector.pair_value.weight.copy_(torch.eye(2))
+        deterministic_drug_selector.pair_value.bias.zero_()
+        deterministic_drug_selector.null_pair.zero_()
+    deterministic_nodes = torch.tensor(
+        [[[2.0, 0.0], [0.0, 2.0], [100.0, 100.0]]]
+    )
+    deterministic_node_mask = torch.tensor([[True, True, False]])
+    deterministic_types = torch.zeros(1, 3, dtype=torch.long)
+    row_major_pairs = torch.tensor(
+        [[[10.0, 0.0], [20.0, 0.0], [30.0, 0.0], [40.0, 0.0]]]
+    )
+    deterministic_drug_outputs = deterministic_drug_selector(
+        deterministic_events,
+        deterministic_nodes,
+        deterministic_types,
+        deterministic_node_mask,
+        deterministic_nodes,
+        deterministic_types,
+        deterministic_node_mask,
+        precomputed_pair_tokens=row_major_pairs,
+        precomputed_pair_mask=torch.ones(1, 4, dtype=torch.bool),
+        drug_b_count=torch.tensor([2]),
+    )
+    assert deterministic_drug_outputs["indices_a"][0, 0, 0].item() == 0
+    assert deterministic_drug_outputs["indices_a"][0, 1, 0].item() == 1
+    assert deterministic_drug_outputs["indices_b"][0, 0, 0].item() == 0
+    assert deterministic_drug_outputs["indices_b"][0, 1, 0].item() == 1
+    assert deterministic_drug_outputs["valid_a"].all()
+    assert deterministic_drug_outputs["valid_b"].all()
+    # With one real pair plus a zero null token at equal score, the selected
+    # value is exactly half of row-major pair 0 for candidate 0 and pair 3 for 1.
+    assert torch.allclose(
+        deterministic_drug_outputs["selected"],
+        torch.tensor([[[5.0, 0.0], [20.0, 0.0]]]),
         atol=1e-6,
     )
     print("candidate-specific per-drug pharmacophore top-k smoke test ok")
