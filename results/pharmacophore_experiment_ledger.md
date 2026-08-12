@@ -189,6 +189,16 @@ population standard deviation is likewise computed from global sums and squared
 sums. Final per-class CSV files include both the split-local class index and the
 corresponding DDIE event ID.
 
+Diagnostic scalar aggregation changed after the running stage-one jobs were
+launched: P1/P2/P3 use the historical mean-of-batch-means values, whereas new
+jobs use exact element weighting. The summarizer therefore requires one
+`--semantics NAME legacy_batch_mean|element_weighted` declaration for every
+`--run`; it writes `aggregation_semantics` into every output row and rejects
+missing, extra, duplicate, or unknown declarations. These two scalar-statistic
+semantics must not be interpreted as model effects. The underlying training
+outputs, validation metrics, attention computation, and checkpoint selection
+are unchanged.
+
 The machine-readable unified table is `pharmacophore_results.csv`. It keeps
 historical test references, validation screens, formal validation runs, and
 eventual final tests in separate `metric_split` / `run_level` fields. Formal

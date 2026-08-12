@@ -112,11 +112,42 @@ def main():
         required=True,
         help="Use '-' when a run has no diagnostics JSONL or no training log.",
     )
+    parser.add_argument(
+        "--semantics",
+        nargs=2,
+        action="append",
+        metavar=("NAME", "AGGREGATION"),
+        required=True,
+        help=(
+            "Declare each run as 'legacy_batch_mean' or 'element_weighted'; "
+            "mixed semantics remain visible in the output."
+        ),
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
+    semantics = {}
+    for name, aggregation in args.semantics:
+        if name in semantics:
+            raise ValueError(f"Duplicate diagnostic semantics for {name}")
+        if aggregation not in {"legacy_batch_mean", "element_weighted"}:
+            raise ValueError(
+                f"Unsupported aggregation semantics for {name}: {aggregation}"
+            )
+        semantics[name] = aggregation
+    run_names = [name for name, _, _ in args.run]
+    if len(run_names) != len(set(run_names)):
+        raise ValueError("Diagnostic run names must be unique")
+    missing_semantics = sorted(set(run_names) - set(semantics))
+    extra_semantics = sorted(set(semantics) - set(run_names))
+    if missing_semantics or extra_semantics:
+        raise ValueError(
+            f"Diagnostic semantics mismatch: missing={missing_semantics}, "
+            f"extra={extra_semantics}"
+        )
+
     output_rows = []
-    field_order = ["experiment", "epoch"]
+    field_order = ["experiment", "aggregation_semantics", "epoch"]
     for name, diagnostics_path, log_path in args.run:
         diagnostics = load_diagnostics(diagnostics_path)
         alpha_history = load_alpha_history(log_path)
@@ -124,7 +155,11 @@ def main():
         if not epochs:
             raise RuntimeError(f"No diagnostics found for {name}")
         for epoch in epochs:
-            row = {"experiment": name, "epoch": epoch}
+            row = {
+                "experiment": name,
+                "aggregation_semantics": semantics[name],
+                "epoch": epoch,
+            }
             row.update(diagnostics.get(epoch, {}))
             if epoch in alpha_history:
                 row["fixed_substructure_alpha"] = alpha_history[epoch]
