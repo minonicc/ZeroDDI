@@ -226,7 +226,7 @@ def main():
         [[[2.0, 0.0], [0.0, 2.0], [100.0, 100.0], [50.0, 50.0]]]
     )
     deterministic_mask = torch.tensor([[True, True, False, False]])
-    _, deterministic_attention, deterministic_indices, deterministic_valid = selector(
+    deterministic_selected, deterministic_attention, deterministic_indices, deterministic_valid = selector(
         deterministic_events,
         deterministic_pairs,
         deterministic_mask,
@@ -242,6 +242,33 @@ def main():
         torch.ones(1, 2),
         atol=1e-6,
     )
+    expected_attention = torch.softmax(
+        torch.tensor([2.0 / (2.0 ** 0.5), 0.0, 0.0]), dim=0
+    )
+    # The third real Top-K slot is padding and must receive exactly zero mass;
+    # the final slot is the null token. Candidate 0 selects pair 0 before pair
+    # 1, while candidate 1 selects them in the opposite order.
+    assert torch.allclose(
+        deterministic_attention[0, 0],
+        torch.tensor(
+            [expected_attention[0], expected_attention[1], 0.0, expected_attention[2]]
+        ),
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        deterministic_attention[0, 1],
+        torch.tensor(
+            [expected_attention[0], expected_attention[1], 0.0, expected_attention[2]]
+        ),
+        atol=1e-6,
+    )
+    expected_selected = torch.tensor(
+        [
+            [2.0 * expected_attention[0], 2.0 * expected_attention[1]],
+            [2.0 * expected_attention[1], 2.0 * expected_attention[0]],
+        ]
+    )
+    assert torch.allclose(deterministic_selected[0], expected_selected, atol=1e-6)
     print("candidate-specific pharmacophore top-k smoke test ok")
 
     class SharedPairEncoder(torch.nn.Module):
