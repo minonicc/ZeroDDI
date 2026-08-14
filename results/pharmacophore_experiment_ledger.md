@@ -239,6 +239,16 @@ fixed-substructure residual dominates rather than remaining a small correction.
 The observation is reported as a diagnostic conclusion; it is not used to
 alter this completed experiment after viewing test results.
 
+After P0 was locked by `stage1_test_structure_selection.json`, Struct-S1 and
+Struct-S3 were rebased to 128 + sum + no gate, audited, and launched directly
+as 100-epoch seed-42 runs per the user-specified stage-two protocol. Struct-S1
+runs in tmux session `zeroddi_struct_s1_p0_100` on physical GPU 4 with work
+directory `work_dirs/formal100_struct_s1_p0`; Struct-S3 runs in
+`zeroddi_struct_s3_p0_100` on physical GPU 5 with work directory
+`work_dirs/formal100_struct_s3_p0`. Both use commit `7232a00`, eight CPU/MKL
+threads, and validation Macro-F1 checkpoint selection before S0 test structure
+comparison.
+
 Epoch-level evidence diagnostics can be flattened with
 `tools/summarize_pharmacophore_diagnostics.py`. The script combines diagnostics
 JSONL with alpha values from training logs, preserves class/type arrays as JSON,
