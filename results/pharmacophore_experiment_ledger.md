@@ -176,15 +176,18 @@ three active formal data pipelines.
 
 ## Stage-one formal runs
 
-The three schemes admitted by the predefined screen rule started 100-epoch
-seed-42 formal validation runs on 2026-08-12. Each run uses Adam, learning rate
-0.0001, batch size 128, and validation Macro-F1 checkpoint selection.
+The three schemes admitted by the predefined screen rule started their current
+100-epoch seed-42 formal validation runs in detached tmux sessions on
+2026-08-13. Each run uses Adam, learning rate 0.0001, batch size 128, and
+validation Macro-F1 checkpoint selection. Earlier direct-exec attempts are
+preserved as engineering traces but were superseded because the command host
+terminated all three child processes after approximately three hours.
 
 | Experiment | Physical GPU | Config | Work directory | Command override |
 |---|---:|---|---|---|
-| P1 | 4 | `configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py` | `work_dirs/formal100_p1` | `--max-epochs 100` |
-| P2 | 6 | `configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py` | `work_dirs/formal100_p2` | `--max-epochs 100` |
-| P3 | 7 | `configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py` | `work_dirs/formal100_p3` | `--max-epochs 100` |
+| P1 | 4 | `configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py` | `work_dirs/formal100_v5_p1` | `--max-epochs 100` |
+| P2 | 6 | `configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py` | `work_dirs/formal100_v5_p2` | `--max-epochs 100` |
+| P3 | 7 | `configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py` | `work_dirs/formal100_v5_p3` | `--max-epochs 100` |
 
 Physical GPU 5 was occupied by an unrelated process and was left untouched.
 All three runs passed initialization and reached at least step 100 of epoch 1
@@ -193,10 +196,18 @@ with finite, decreasing training loss.
 Exact launch commands (each process sees its bound physical GPU as `cuda:0`):
 
 ```bash
-CUDA_VISIBLE_DEVICES=4 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py --work-dir work_dirs/formal100_p1 --device cuda:0 --seednumber 42 --max-epochs 100
-CUDA_VISIBLE_DEVICES=6 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py --work-dir work_dirs/formal100_p2 --device cuda:0 --seednumber 42 --max-epochs 100
-CUDA_VISIBLE_DEVICES=7 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py --work-dir work_dirs/formal100_p3 --device cuda:0 --seednumber 42 --max-epochs 100
+CUDA_VISIBLE_DEVICES=4 OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p1_128_mean.py --work-dir work_dirs/formal100_v5_p1 --device cuda:0 --seednumber 42 --max-epochs 100
+CUDA_VISIBLE_DEVICES=6 OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p2_512_sum.py --work-dir work_dirs/formal100_v5_p2 --device cuda:0 --seednumber 42 --max-epochs 100
+CUDA_VISIBLE_DEVICES=7 OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 /home/wumengying/miniconda3/envs/zeroddi/bin/python main.py --config configs/new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py --work-dir work_dirs/formal100_v5_p3 --device cuda:0 --seednumber 42 --max-epochs 100
 ```
+
+The v5 training-time validation path computes ACC, Kappa, Macro-F1,
+Weighted-F1, Macro-Precision, and Macro-Recall on every epoch. PR-AUC is an
+auxiliary metric and is deliberately deferred because three prior runs were
+observed directly inside scikit-learn `average_precision_score` for tens of
+minutes. Explicit checkpoint evaluation retains the default full metric path
+and therefore computes both macro and micro PR-AUC once for the final report.
+This does not alter checkpoint selection, which never uses PR-AUC.
 
 Epoch-level evidence diagnostics can be flattened with
 `tools/summarize_pharmacophore_diagnostics.py`. The script combines diagnostics
