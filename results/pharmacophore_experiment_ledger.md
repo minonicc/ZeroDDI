@@ -249,6 +249,14 @@ directory `work_dirs/formal100_struct_s1_p0`; Struct-S3 runs in
 threads, and validation Macro-F1 checkpoint selection before S0 test structure
 comparison.
 
+An additional intermediate pair-count control, P8 (256 + sum + no gate), was
+added at commit `1b4c678`. Its audit proves that it differs from P2 only in
+`pharmacophore_max_pairs` (256 versus 512). The 100-epoch seed-42 run uses
+physical GPU 6, tmux session `zeroddi_p8_256_sum_100`, and work directory
+`work_dirs/formal100_p8_256_sum`. A representative five-epoch T3-128 engineering
+debug was also proposed for idle GPU 7, but its tmux creation permission was
+rejected before launch; no stage-three result is claimed from that request.
+
 Epoch-level evidence diagnostics can be flattened with
 `tools/summarize_pharmacophore_diagnostics.py`. The script combines diagnostics
 JSONL with alpha values from training logs, preserves class/type arrays as JSON,
