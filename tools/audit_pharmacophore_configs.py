@@ -160,6 +160,7 @@ def main():
             "model.leftmodel.pharmacophore_selection_mode",
             "model.matching_pharmacophore_drug_top_k",
             "model.matching_pharmacophore_top_k",
+            "provisional_dependency",
             "work_dir",
         },
         "pair Top-128 versus per-drug Top-12",
