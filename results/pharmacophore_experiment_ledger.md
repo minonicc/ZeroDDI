@@ -257,6 +257,23 @@ physical GPU 6, tmux session `zeroddi_p8_256_sum_100`, and work directory
 debug was also proposed for idle GPU 7, but its tmux creation permission was
 rejected before launch; no stage-three result is claimed from that request.
 
+The stage-three representative comparison was subsequently launched directly
+for 100 epochs from the P0-controlled T3-128 architecture. Session
+`zeroddi_t3_top128_softmax_100` uses physical GPU 7 and retains the specified
+softmax over 128 candidate-specific real pairs plus the pharmacophore null
+token. Session `zeroddi_t3_top128_sigmoid_100` uses physical GPU 3 and instead
+assigns independent sigmoid relevance weights, divides their weighted sum by
+the number of valid selected pairs (not the weight sum), and disables the null
+token only for the pharmacophore branch. The latter therefore permits an
+all-irrelevant selected set to approach zero evidence while leaving the
+substructure and KG null-token behavior unchanged. Both runs use seed 42,
+commit `3380396`, eight CPU/MKL threads, and work directories
+`work_dirs/formal100_t3_top128_softmax` and
+`work_dirs/formal100_t3_top128_sigmoid_mean`, respectively. Physical GPU 3
+also had an unrelated approximately 3.5 GiB process; it was left untouched,
+and the training job was co-located only because sufficient A100 memory
+remained and the user explicitly assigned GPU 3.
+
 Epoch-level evidence diagnostics can be flattened with
 `tools/summarize_pharmacophore_diagnostics.py`. The script combines diagnostics
 JSONL with alpha values from training logs, preserves class/type arrays as JSON,
