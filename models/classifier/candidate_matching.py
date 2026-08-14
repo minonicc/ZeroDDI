@@ -116,56 +116,23 @@ class DDIEGuidedEvidenceSelector(nn.Module):
         for start in range(0, event_repr.size(0), self.candidate_chunk_size):
             end = min(start + self.candidate_chunk_size, event_repr.size(0))
             chunk_query = query[:, start:end]
-            scores = torch.matmul(chunk_query, key.transpose(1, 2))
-            scores = scores / math.sqrt(self.hidden_dim)
-            scores = scores.masked_fill(
-                ~evidence_mask.unsqueeze(1), torch.finfo(scores.dtype).min
+            chunk_args = (
+                chunk_query,
+                key,
+                value,
+                evidence_mask,
+                null_key if self.use_null_evidence else key[:, :0],
+                null_value if self.use_null_evidence else value[:, :0],
+                selected_count,
             )
-            top_scores, top_indices = torch.topk(scores, selected_count, dim=-1)
-            expanded_mask = evidence_mask.unsqueeze(1).expand(-1, end - start, -1)
-            top_valid = torch.gather(expanded_mask, 2, top_indices)
-            expanded_value = value.unsqueeze(1).expand(-1, end - start, -1, -1)
-            top_values = torch.gather(
-                expanded_value,
-                2,
-                top_indices.unsqueeze(-1).expand(-1, -1, -1, value.size(-1)),
-            )
-            if self.use_null_evidence:
-                null_scores = torch.matmul(chunk_query, null_key.transpose(1, 2))
-                null_scores = null_scores / math.sqrt(self.hidden_dim)
-                top_scores = torch.cat([top_scores, null_scores], dim=-1)
-                top_values = torch.cat(
-                    [
-                        top_values,
-                        null_value.unsqueeze(1).expand(-1, end - start, -1, -1),
-                    ],
-                    dim=2,
-                )
-                top_valid = torch.cat(
-                    [
-                        top_valid,
-                        torch.ones(
-                            batch_size,
-                            end - start,
-                            1,
-                            dtype=torch.bool,
-                            device=evidence_tokens.device,
-                        ),
-                    ],
-                    dim=-1,
-                )
-            top_scores = top_scores.masked_fill(
-                ~top_valid, torch.finfo(top_scores.dtype).min
-            )
-            if self.top_k_aggregation == "softmax":
-                attention = F.softmax(top_scores, dim=-1).masked_fill(
-                    ~top_valid, 0.0
+            if self.training:
+                selected, attention, top_indices, top_valid = checkpoint(
+                    self._aggregate_top_k_chunk, *chunk_args
                 )
             else:
-                attention = torch.sigmoid(top_scores).masked_fill(~top_valid, 0.0)
-                valid_count = top_valid.sum(dim=-1, keepdim=True).clamp_min(1)
-                attention = attention / valid_count.to(attention.dtype)
-            selected = torch.matmul(attention.unsqueeze(-2), top_values).squeeze(-2)
+                selected, attention, top_indices, top_valid = (
+                    self._aggregate_top_k_chunk(*chunk_args)
+                )
             selected_chunks.append(selected)
             attention_chunks.append(attention)
             index_chunks.append(top_indices)
@@ -176,6 +143,73 @@ class DDIEGuidedEvidenceSelector(nn.Module):
             torch.cat(index_chunks, dim=1),
             torch.cat(valid_chunks, dim=1),
         )
+
+    def _aggregate_top_k_chunk(
+        self,
+        chunk_query,
+        key,
+        value,
+        evidence_mask,
+        null_key,
+        null_value,
+        selected_count,
+    ):
+        """Rank and aggregate one candidate chunk; checkpointed in training."""
+        scores = torch.matmul(chunk_query, key.transpose(1, 2))
+        scores = scores / math.sqrt(self.hidden_dim)
+        scores = scores.masked_fill(
+            ~evidence_mask.unsqueeze(1), torch.finfo(scores.dtype).min
+        )
+        top_scores, top_indices = torch.topk(scores, selected_count, dim=-1)
+        expanded_mask = evidence_mask.unsqueeze(1).expand(
+            -1, chunk_query.size(1), -1
+        )
+        top_valid = torch.gather(expanded_mask, 2, top_indices)
+        expanded_value = value.unsqueeze(1).expand(
+            -1, chunk_query.size(1), -1, -1
+        )
+        top_values = torch.gather(
+            expanded_value,
+            2,
+            top_indices.unsqueeze(-1).expand(-1, -1, -1, value.size(-1)),
+        )
+        if self.use_null_evidence:
+            null_scores = torch.matmul(chunk_query, null_key.transpose(1, 2))
+            null_scores = null_scores / math.sqrt(self.hidden_dim)
+            top_scores = torch.cat([top_scores, null_scores], dim=-1)
+            top_values = torch.cat(
+                [
+                    top_values,
+                    null_value.unsqueeze(1).expand(
+                        -1, chunk_query.size(1), -1, -1
+                    ),
+                ],
+                dim=2,
+            )
+            top_valid = torch.cat(
+                [
+                    top_valid,
+                    torch.ones(
+                        chunk_query.size(0),
+                        chunk_query.size(1),
+                        1,
+                        dtype=torch.bool,
+                        device=chunk_query.device,
+                    ),
+                ],
+                dim=-1,
+            )
+        top_scores = top_scores.masked_fill(
+            ~top_valid, torch.finfo(top_scores.dtype).min
+        )
+        if self.top_k_aggregation == "softmax":
+            attention = F.softmax(top_scores, dim=-1).masked_fill(~top_valid, 0.0)
+        else:
+            attention = torch.sigmoid(top_scores).masked_fill(~top_valid, 0.0)
+            valid_count = top_valid.sum(dim=-1, keepdim=True).clamp_min(1)
+            attention = attention / valid_count.to(attention.dtype)
+        selected = torch.matmul(attention.unsqueeze(-2), top_values).squeeze(-2)
+        return selected, attention, top_indices, top_valid
 
 
 class KGEvidenceFeatureEncoder(nn.Module):
