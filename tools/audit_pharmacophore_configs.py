@@ -145,6 +145,7 @@ def main():
         top64,
         top128,
         {
+            "model.matching_pharmacophore_candidate_chunk_size",
             "model.matching_pharmacophore_top_k",
             "provisional_dependency",
             "work_dir",
@@ -155,6 +156,7 @@ def main():
         top128,
         top256,
         {
+            "model.matching_pharmacophore_candidate_chunk_size",
             "model.matching_pharmacophore_top_k",
             "provisional_dependency",
             "work_dir",
@@ -172,6 +174,7 @@ def main():
         drug12,
         {
             "model.leftmodel.pharmacophore_selection_mode",
+            "model.matching_pharmacophore_candidate_chunk_size",
             "model.matching_pharmacophore_drug_top_k",
             "model.matching_pharmacophore_top_k",
             "provisional_dependency",
@@ -200,6 +203,7 @@ def main():
     assert top128.model.matching_use_pharmacophore_evidence
     assert top64.model.matching_pharmacophore_top_k == 64
     assert top128.model.matching_pharmacophore_top_k == 128
+    assert top128.model.matching_pharmacophore_candidate_chunk_size == 4
     assert top256.model.matching_pharmacophore_top_k == 256
     assert drug12.model.matching_pharmacophore_drug_top_k == 12
     assert drug16.model.matching_pharmacophore_drug_top_k == 16

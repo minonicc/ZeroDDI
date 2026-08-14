@@ -24,6 +24,7 @@ class DDIEGuidedEvidenceSelector(nn.Module):
         hidden_dim,
         use_null_evidence=True,
         top_k_aggregation="softmax",
+        candidate_chunk_size=16,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -33,6 +34,9 @@ class DDIEGuidedEvidenceSelector(nn.Module):
                 "top_k_aggregation must be 'softmax' or 'sigmoid_mean'"
             )
         self.top_k_aggregation = top_k_aggregation
+        if candidate_chunk_size <= 0:
+            raise ValueError("candidate_chunk_size must be positive")
+        self.candidate_chunk_size = int(candidate_chunk_size)
         self.query = nn.Linear(event_dim, hidden_dim)
         self.key = nn.Linear(evidence_dim, hidden_dim)
         self.value = nn.Linear(evidence_dim, hidden_dim)
@@ -109,9 +113,8 @@ class DDIEGuidedEvidenceSelector(nn.Module):
         attention_chunks = []
         index_chunks = []
         valid_chunks = []
-        candidate_chunk_size = 16
-        for start in range(0, event_repr.size(0), candidate_chunk_size):
-            end = min(start + candidate_chunk_size, event_repr.size(0))
+        for start in range(0, event_repr.size(0), self.candidate_chunk_size):
+            end = min(start + self.candidate_chunk_size, event_repr.size(0))
             chunk_query = query[:, start:end]
             scores = torch.matmul(chunk_query, key.transpose(1, 2))
             scores = scores / math.sqrt(self.hidden_dim)
@@ -684,6 +687,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     hidden_dim=self.pharmacophore_hidden_dim,
                     use_null_evidence=pharmacophore_use_null_evidence,
                     top_k_aggregation=pharmacophore_top_k_aggregation,
+                    candidate_chunk_size=pharmacophore_candidate_chunk_size,
                 )
             if self.use_pharmacophore_gate:
                 self.pharmacophore_gate = nn.Sequential(

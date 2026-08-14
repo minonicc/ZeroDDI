@@ -184,6 +184,7 @@ def main():
         use_pharmacophore_evidence=True,
         pharmacophore_evidence_dim=evidence_dim,
         pharmacophore_top_k=5,
+        pharmacophore_candidate_chunk_size=2,
     )
     top_k_outputs = top_k_model(
         pair_repr,

@@ -6,6 +6,9 @@ _base_ = './new_s0_reverse_kg_pharmacophore.py'
 model = dict(
     leftmodel=dict(pharmacophore_max_pairs=None),
     matching_pharmacophore_top_k=128,
+    # Memory-only execution control: process four candidate DDIEs at a time.
+    # This does not change scores, Top-K membership, or aggregation semantics.
+    matching_pharmacophore_candidate_chunk_size=4,
 )
 
 work_dir = './work_dirs/new_s0_pharmacophore_t3_top128'
