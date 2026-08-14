@@ -2,6 +2,7 @@ import os
 
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 
 PHARMACOPHORE_FAMILIES = (
@@ -246,6 +247,9 @@ class PharmacophorePairEncoder(nn.Module):
             return drug_a_atoms.new_zeros((0, self.output_dim))
         return self.norm(self.pair_mlp(pair_input))
 
+    def _encode_pair_inputs(self, pair_inputs):
+        return self.norm(self.pair_mlp(pair_inputs))
+
     def forward(self, drug_a_batch, drug_b_batch, drug_a_features, drug_b_features):
         batch_size = len(drug_a_features)
         if self.batch_pair_mlp:
@@ -386,7 +390,14 @@ class PharmacophorePairEncoder(nn.Module):
         if not non_empty_inputs:
             return output, mask
 
-        encoded_all = self.norm(self.pair_mlp(torch.cat(non_empty_inputs, dim=0)))
+        concatenated_inputs = torch.cat(non_empty_inputs, dim=0)
+        if self.training and self.max_pairs is None:
+            # Pair-level Top-K must encode the complete candidate set. Recompute
+            # this MLP during backward instead of retaining its large hidden
+            # activation; checkpoint preserves dropout RNG state by default.
+            encoded_all = checkpoint(self._encode_pair_inputs, concatenated_inputs)
+        else:
+            encoded_all = self._encode_pair_inputs(concatenated_inputs)
         cursor = 0
         for idx, length in enumerate(lengths):
             if length == 0:
