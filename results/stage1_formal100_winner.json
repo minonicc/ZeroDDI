@@ -1,0 +1,68 @@
+{
+  "all_runs": [
+    {
+      "ACC": 0.923996,
+      "Kappa": 0.916744,
+      "Macro-F1": 0.829974,
+      "best_epoch": 95,
+      "completed_epochs": 100,
+      "experiment": "P1",
+      "log": "work_dirs/formal100_v5_p1/20260813_152743.log"
+    },
+    {
+      "ACC": 0.927197,
+      "Kappa": 0.920184,
+      "Macro-F1": 0.835698,
+      "best_epoch": 99,
+      "completed_epochs": 100,
+      "experiment": "P2",
+      "log": "work_dirs/formal100_v5_p2/20260813_152744.log"
+    },
+    {
+      "ACC": 0.917562,
+      "Kappa": 0.909645,
+      "Macro-F1": 0.848417,
+      "best_epoch": 84,
+      "completed_epochs": 100,
+      "experiment": "P3",
+      "log": "work_dirs/formal100_v5_p3/20260813_152746.log"
+    }
+  ],
+  "comparisons": [
+    {
+      "deltas": {
+        "ACC": -0.006434000000000051,
+        "Kappa": -0.0070989999999999664,
+        "Macro-F1": 0.018442999999999987
+      },
+      "macro_gain_with_both_acc_kappa_down": true,
+      "reference": "P1"
+    },
+    {
+      "deltas": {
+        "ACC": -0.00963500000000006,
+        "Kappa": -0.010538999999999965,
+        "Macro-F1": 0.012718999999999925
+      },
+      "macro_gain_with_both_acc_kappa_down": true,
+      "reference": "P2"
+    }
+  ],
+  "contenders": [
+    "P3"
+  ],
+  "macro_f1_tolerance": 0.001,
+  "max_macro_f1": 0.848417,
+  "metric_split": "validation",
+  "requires_tradeoff_review": true,
+  "selection_rule": "highest Macro-F1 band with max-minus-candidate < 0.001; within band use Kappa then ACC",
+  "winner": {
+    "ACC": 0.917562,
+    "Kappa": 0.909645,
+    "Macro-F1": 0.848417,
+    "best_epoch": 84,
+    "completed_epochs": 100,
+    "experiment": "P3",
+    "log": "work_dirs/formal100_v5_p3/20260813_152746.log"
+  }
+}

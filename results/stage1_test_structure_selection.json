@@ -1,0 +1,18 @@
+{
+  "selection_role": "S0 test structure selection",
+  "selection_protocol": "Compare final validation-selected checkpoints on S0 test; prioritize overall ACC, Kappa, and Macro-F1 behavior, with Macro-F1 used for the pharmacophore branch choice when metrics trade off.",
+  "selected_pharmacophore_base": {
+    "experiment": "P0",
+    "configuration": "128 + sum + no gate",
+    "ACC": 0.925631,
+    "Kappa": 0.918534,
+    "Macro-F1": 0.843648,
+    "provenance": "historical result supplied before the current experiment series"
+  },
+  "current_formal_test_results": [
+    {"experiment": "P1", "ACC": 0.925342, "Kappa": 0.918265, "Macro-F1": 0.832006},
+    {"experiment": "P2", "ACC": 0.927150, "Kappa": 0.920189, "Macro-F1": 0.834817},
+    {"experiment": "P3", "ACC": 0.916101, "Kappa": 0.908090, "Macro-F1": 0.821463}
+  ],
+  "conclusion": "Mean pooling, 512-pair expansion, and the pharmacophore gate did not improve overall S0 test behavior over P0. Use P0 controls for Struct-S1 and Struct-S3."
+}

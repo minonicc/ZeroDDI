@@ -138,32 +138,23 @@ identity projection is dimensionally exact; a learned projection is not needed
 for this architecture. Struct-S1 sets `use_sub=False`, so neither this fixed
 path nor the old queried-substructure tokens are computed.
 
-P3 remains only the provisional 50-epoch screen winner for the checked-in
-Struct-S1/S3 templates. Those templates may be used for controlled engineering
-debugs, but must be rebased if the stage-one 100-epoch validation winner changes
-before any Struct screen or formal run is launched.
-Struct-S1 and Struct-S3 carry
-`provisional_dependency='stage1_formal100_validation_winner'`; the training
-entry point rejects more than five epochs until that marker is explicitly
-removed after winner lock and config re-audit. Struct-S4 has no pharmacophore
+Under the user-specified S0 test structure-selection protocol, P0
+(128 + sum + no gate) remains the selected pharmacophore base. Struct-S1 and
+Struct-S3 were rebased from the provisional P3 template to P0, explicitly
+disable the gate, and passed the controlled config-difference audit before
+their formal launches. Struct-S4 has no pharmacophore
 branch and therefore cannot change with the stage-one pharmacophore winner; its
 guard was removed after config-difference audit and its 100-epoch run started
 on physical GPU 0 in tmux session `zeroddi_struct_s4_100`. Stage-three templates carry the
-analogous `stage2_validation_winner` guard. A real CLI smoke invocation confirms
-that a provisional Struct-S3 50-epoch request fails before dataset/model build,
-while guarded runs of at most five epochs and unguarded formal configs pass.
-Provisional configs also reject all explicit checkpoint-evaluation modes even
-when `--max-epochs` is lowered to a debug value, closing a route that could
-otherwise expose test metrics before validation winner lock. After winner lock,
-the selected config is rebased and audited and its dependency marker is removed;
-only then can the explicit final-evaluation path run.
+analogous `stage2_validation_winner` guard until stage-two structure selection.
 
 Two optional stage-one factorial controls were added at commit `b236b62`:
 P6 (128 + mean + gate) differs from P1 only by the pharmacophore gate, and P7
 (512 + sum + gate) differs from P2 only by the gate. Both passed the controlled
 config audit. Their intended physical GPUs are 1 and 2, but their tmux creation
-requests were rejected by the execution permission layer, so they remain
-pending and must not be reported as started.
+requests were rejected by the execution permission layer. The user subsequently
+deprioritized both optional controls, so they remain unrun and are marked
+superseded rather than pending.
 
 The 5-epoch stage-one debug metrics are saved in `stage1_debug_5ep.csv`.
 They only establish correct execution and decreasing loss; they are not used for
@@ -224,9 +215,20 @@ P2 and P3 completed exact ordered validation epochs 1--100. P2 selected epoch
 epoch 84 (validation ACC 0.917562, Kappa 0.909645, Macro-F1 0.848417). Their
 validation-selected S0 test results are recorded separately as `finaltest`
 rows: P2 ACC/Kappa/Macro-F1 = 0.927150/0.920189/0.834817 and P3 =
-0.916101/0.908090/0.821463. These test values are final reporting outputs and
-are not used to choose the stage-one winner; P1 must finish before that
-validation-only decision is locked.
+0.916101/0.908090/0.821463.
+
+P1 subsequently completed exact epochs 1--100 and selected epoch 95
+(validation ACC/Kappa/Macro-F1 = 0.923996/0.916744/0.829974). Its corresponding
+test values are 0.925342/0.918265/0.832006, with macro/micro PR-AUC
+0.896969/0.977814. The validation-only decision file
+`stage1_formal100_winner.json` is retained as an audit of the automatic
+validation-Macro-F1 decision only: it selects P3 and flags that P3 has lower ACC
+and Kappa than both alternatives. It is not the structure-selection authority.
+The authoritative decision is `stage1_test_structure_selection.json`, which
+compares the final S0 test results under the protocol explicitly selected by the
+user and retains the pre-existing P0 result as the pharmacophore base. None of
+P1/P2/P3 improves overall test behavior over P0, and none establishes the
+stable new overall best required to unlock S2/S3 dataset-split evaluation.
 
 Struct-S4 also completed exact epochs 1--100 and selected epoch 100. Its
 validation ACC/Kappa/Macro-F1 are 0.919065/0.911319/0.785700; the corresponding

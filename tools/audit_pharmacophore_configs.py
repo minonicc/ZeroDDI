@@ -113,8 +113,6 @@ def main():
         {
             "model.leftmodel.use_pharmacophore_pairs",
             "model.matching_use_pharmacophore_evidence",
-            "model.matching_use_pharmacophore_gate",
-            "provisional_dependency",
             "work_dir",
         },
         "Struct-S3 versus Struct-S4",
@@ -155,7 +153,10 @@ def main():
     assert not struct_s3.model.leftmodel.use_query_substructure
     assert not struct_s4.model.matching_use_pharmacophore_evidence
     for config in (struct_s1, struct_s3):
-        assert config.provisional_dependency == "stage1_formal100_validation_winner"
+        assert config.get("provisional_dependency", None) is None
+        assert config.model.leftmodel.pharmacophore_max_pairs == 128
+        assert config.model.leftmodel.pharmacophore_pooling == "sum"
+        assert not config.model.matching_use_pharmacophore_gate
     assert struct_s4.get("provisional_dependency", None) is None
     for config in (top64, top128, top256, drug12, drug16):
         assert config.provisional_dependency == "stage2_validation_winner"
