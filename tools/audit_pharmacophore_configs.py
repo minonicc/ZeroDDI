@@ -55,6 +55,7 @@ def main():
     p3 = load("new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py")
     p6 = load("new_s0_reverse_kg_pharmacophore_p6_128_mean_gate.py")
     p7 = load("new_s0_reverse_kg_pharmacophore_p7_512_sum_gate.py")
+    p8 = load("new_s0_reverse_kg_pharmacophore_p8_256_sum.py")
     struct_s1 = load("new_s0_struct_s1_pharmacophore_replaces_substructure.py")
     struct_s3 = load("new_s0_struct_s3_fixed_substructure_pharmacophore.py")
     struct_s4 = load("new_s0_struct_s4_fixed_substructure.py")
@@ -96,6 +97,15 @@ def main():
         {"model.matching_use_pharmacophore_gate", "work_dir"},
         "P2 versus P7",
     )
+    require_differences(
+        p2,
+        p8,
+        {"model.leftmodel.pharmacophore_max_pairs", "work_dir"},
+        "P2 versus P8",
+    )
+    assert p8.model.leftmodel.pharmacophore_max_pairs == 256
+    assert p8.model.leftmodel.pharmacophore_pooling == "sum"
+    assert not p8.model.matching_use_pharmacophore_gate
     require_differences(
         struct_s1,
         struct_s3,
