@@ -142,10 +142,13 @@ P3 remains only the provisional 50-epoch screen winner for the checked-in
 Struct-S1/S3 templates. Those templates may be used for controlled engineering
 debugs, but must be rebased if the stage-one 100-epoch validation winner changes
 before any Struct screen or formal run is launched.
-All Struct templates carry
+Struct-S1 and Struct-S3 carry
 `provisional_dependency='stage1_formal100_validation_winner'`; the training
 entry point rejects more than five epochs until that marker is explicitly
-removed after winner lock and config re-audit. Stage-three templates carry the
+removed after winner lock and config re-audit. Struct-S4 has no pharmacophore
+branch and therefore cannot change with the stage-one pharmacophore winner; its
+guard was removed after config-difference audit and its 100-epoch run started
+on physical GPU 0 in tmux session `zeroddi_struct_s4_100`. Stage-three templates carry the
 analogous `stage2_validation_winner` guard. A real CLI smoke invocation confirms
 that a provisional Struct-S3 50-epoch request fails before dataset/model build,
 while guarded runs of at most five epochs and unguarded formal configs pass.
@@ -154,6 +157,13 @@ when `--max-epochs` is lowered to a debug value, closing a route that could
 otherwise expose test metrics before validation winner lock. After winner lock,
 the selected config is rebased and audited and its dependency marker is removed;
 only then can the explicit final-evaluation path run.
+
+Two optional stage-one factorial controls were added at commit `b236b62`:
+P6 (128 + mean + gate) differs from P1 only by the pharmacophore gate, and P7
+(512 + sum + gate) differs from P2 only by the gate. Both passed the controlled
+config audit. Their intended physical GPUs are 1 and 2, but their tmux creation
+requests were rejected by the execution permission layer, so they remain
+pending and must not be reported as started.
 
 The 5-epoch stage-one debug metrics are saved in `stage1_debug_5ep.csv`.
 They only establish correct execution and decreasing loss; they are not used for
