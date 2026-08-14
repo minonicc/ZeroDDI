@@ -271,6 +271,44 @@ def main():
     assert torch.allclose(deterministic_selected[0], expected_selected, atol=1e-6)
     print("candidate-specific pharmacophore top-k smoke test ok")
 
+    sigmoid_selector = DDIEGuidedEvidenceSelector(
+        evidence_dim=2,
+        event_dim=2,
+        hidden_dim=2,
+        use_null_evidence=False,
+        top_k_aggregation="sigmoid_mean",
+    )
+    with torch.no_grad():
+        for projection in (
+            sigmoid_selector.query,
+            sigmoid_selector.key,
+            sigmoid_selector.value,
+        ):
+            projection.weight.copy_(torch.eye(2))
+            projection.bias.zero_()
+    sigmoid_selected, sigmoid_weights, _, sigmoid_valid = sigmoid_selector(
+        deterministic_events,
+        deterministic_pairs,
+        deterministic_mask,
+        top_k=3,
+    )
+    sigmoid_expected = torch.sigmoid(
+        torch.tensor([2.0 / (2.0 ** 0.5), 0.0])
+    ) / 2.0
+    assert torch.allclose(
+        sigmoid_weights[0, 0],
+        torch.tensor([sigmoid_expected[0], sigmoid_expected[1], 0.0]),
+        atol=1e-6,
+    )
+    assert sigmoid_valid[0, 0].tolist() == [True, True, False]
+    assert torch.allclose(
+        sigmoid_selected[0, 0],
+        torch.tensor([2.0 * sigmoid_expected[0], 2.0 * sigmoid_expected[1]]),
+        atol=1e-6,
+    )
+    assert sigmoid_weights[0, 0].sum() < 1.0
+    print("candidate-specific sigmoid-mean pharmacophore top-k smoke test ok")
+
     class SharedPairEncoder(torch.nn.Module):
         def __init__(self):
             super().__init__()

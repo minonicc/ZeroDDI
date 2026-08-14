@@ -17,10 +17,22 @@ def pool_event_tokens(event_tokens):
 class DDIEGuidedEvidenceSelector(nn.Module):
     """Select drug evidence tokens for each candidate DDIE representation."""
 
-    def __init__(self, evidence_dim, event_dim, hidden_dim, use_null_evidence=True):
+    def __init__(
+        self,
+        evidence_dim,
+        event_dim,
+        hidden_dim,
+        use_null_evidence=True,
+        top_k_aggregation="softmax",
+    ):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.use_null_evidence = use_null_evidence
+        if top_k_aggregation not in {"softmax", "sigmoid_mean"}:
+            raise ValueError(
+                "top_k_aggregation must be 'softmax' or 'sigmoid_mean'"
+            )
+        self.top_k_aggregation = top_k_aggregation
         self.query = nn.Linear(event_dim, hidden_dim)
         self.key = nn.Linear(evidence_dim, hidden_dim)
         self.value = nn.Linear(evidence_dim, hidden_dim)
@@ -142,7 +154,14 @@ class DDIEGuidedEvidenceSelector(nn.Module):
             top_scores = top_scores.masked_fill(
                 ~top_valid, torch.finfo(top_scores.dtype).min
             )
-            attention = F.softmax(top_scores, dim=-1).masked_fill(~top_valid, 0.0)
+            if self.top_k_aggregation == "softmax":
+                attention = F.softmax(top_scores, dim=-1).masked_fill(
+                    ~top_valid, 0.0
+                )
+            else:
+                attention = torch.sigmoid(top_scores).masked_fill(~top_valid, 0.0)
+                valid_count = top_valid.sum(dim=-1, keepdim=True).clamp_min(1)
+                attention = attention / valid_count.to(attention.dtype)
             selected = torch.matmul(attention.unsqueeze(-2), top_values).squeeze(-2)
             selected_chunks.append(selected)
             attention_chunks.append(attention)
@@ -590,6 +609,8 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_hidden_dim=None,
         use_pharmacophore_gate=False,
         pharmacophore_top_k=None,
+        pharmacophore_top_k_aggregation="softmax",
+        pharmacophore_use_null_evidence=None,
         pharmacophore_drug_top_k=None,
         pharmacophore_type_dim=32,
         pharmacophore_candidate_chunk_size=8,
@@ -609,6 +630,9 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         self.pharmacophore_hidden_dim = pharmacophore_hidden_dim or hidden_dim
         self.use_pharmacophore_gate = use_pharmacophore_gate
         self.pharmacophore_top_k = pharmacophore_top_k
+        self.pharmacophore_top_k_aggregation = pharmacophore_top_k_aggregation
+        if pharmacophore_use_null_evidence is None:
+            pharmacophore_use_null_evidence = use_null_evidence
         self.pharmacophore_drug_top_k = pharmacophore_drug_top_k
         if pharmacophore_top_k is not None and pharmacophore_drug_top_k is not None:
             raise ValueError(
@@ -658,7 +682,8 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     evidence_dim=pharmacophore_evidence_dim,
                     event_dim=event_dim,
                     hidden_dim=self.pharmacophore_hidden_dim,
-                    use_null_evidence=use_null_evidence,
+                    use_null_evidence=pharmacophore_use_null_evidence,
+                    top_k_aggregation=pharmacophore_top_k_aggregation,
                 )
             if self.use_pharmacophore_gate:
                 self.pharmacophore_gate = nn.Sequential(

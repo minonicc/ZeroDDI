@@ -61,10 +61,24 @@ def main():
     struct_s4 = load("new_s0_struct_s4_fixed_substructure.py")
     top64 = load("new_s0_pharmacophore_t2_top64.py")
     top128 = load("new_s0_pharmacophore_t3_top128.py")
+    top128_sigmoid = load("new_s0_pharmacophore_t3_top128_sigmoid_mean.py")
     top256 = load("new_s0_pharmacophore_t2_top256.py")
     drug12 = load("new_s0_pharmacophore_d3_drug_top12.py")
     drug16 = load("new_s0_pharmacophore_d3_drug_top16.py")
 
+    require_differences(
+        top128,
+        top128_sigmoid,
+        {
+            "model.matching_pharmacophore_top_k_aggregation",
+            "model.matching_pharmacophore_use_null_evidence",
+            "work_dir",
+        },
+        "pair Top-128 softmax versus sigmoid mean",
+    )
+    assert top128_sigmoid.model.matching_pharmacophore_top_k == 128
+    assert top128_sigmoid.model.matching_pharmacophore_top_k_aggregation == "sigmoid_mean"
+    assert not top128_sigmoid.model.matching_pharmacophore_use_null_evidence
     require_differences(
         p1,
         p2,
