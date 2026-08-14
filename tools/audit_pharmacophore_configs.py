@@ -53,6 +53,8 @@ def main():
     p1 = load("new_s0_reverse_kg_pharmacophore_p1_128_mean.py")
     p2 = load("new_s0_reverse_kg_pharmacophore_p2_512_sum.py")
     p3 = load("new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py")
+    p6 = load("new_s0_reverse_kg_pharmacophore_p6_128_mean_gate.py")
+    p7 = load("new_s0_reverse_kg_pharmacophore_p7_512_sum_gate.py")
     struct_s1 = load("new_s0_struct_s1_pharmacophore_replaces_substructure.py")
     struct_s3 = load("new_s0_struct_s3_fixed_substructure_pharmacophore.py")
     struct_s4 = load("new_s0_struct_s4_fixed_substructure.py")
@@ -83,6 +85,18 @@ def main():
         "P2 versus P3",
     )
     require_differences(
+        p1,
+        p6,
+        {"model.matching_use_pharmacophore_gate", "work_dir"},
+        "P1 versus P6",
+    )
+    require_differences(
+        p2,
+        p7,
+        {"model.matching_use_pharmacophore_gate", "work_dir"},
+        "P2 versus P7",
+    )
+    require_differences(
         struct_s1,
         struct_s3,
         {
@@ -100,6 +114,7 @@ def main():
             "model.leftmodel.use_pharmacophore_pairs",
             "model.matching_use_pharmacophore_evidence",
             "model.matching_use_pharmacophore_gate",
+            "provisional_dependency",
             "work_dir",
         },
         "Struct-S3 versus Struct-S4",
@@ -139,8 +154,9 @@ def main():
     assert struct_s3.model.leftmodel.fixed_substructure_alpha_init == 0.0
     assert not struct_s3.model.leftmodel.use_query_substructure
     assert not struct_s4.model.matching_use_pharmacophore_evidence
-    for config in (struct_s1, struct_s3, struct_s4):
+    for config in (struct_s1, struct_s3):
         assert config.provisional_dependency == "stage1_formal100_validation_winner"
+    assert struct_s4.get("provisional_dependency", None) is None
     for config in (top64, top128, top256, drug12, drug16):
         assert config.provisional_dependency == "stage2_validation_winner"
         assert config.model.leftmodel.pharmacophore_max_pairs is None

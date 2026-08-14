@@ -1,7 +1,5 @@
 _base_ = './new_s0_reverse_kg_pharmacophore_p3_128_sum_gate.py'
 
-provisional_dependency = 'stage1_formal100_validation_winner'
-
 model = dict(
     leftmodel=dict(
         use_sub=True,
@@ -16,7 +14,8 @@ model = dict(
     semantic_aux_lambda=0.0,
 )
 
-# Struct-S3 and Struct-S4 share the selected P3 training controls.  This
-# ablation disables only the pharmacophore branch on top of the same fixed
-# substructure base.
+# Struct-S4 contains no pharmacophore branch, so its architecture is independent
+# of the stage-one pharmacophore winner.  It retains the common optimizer and
+# training controls inherited through P3 while disabling every P3-specific
+# pharmacophore component below.
 work_dir = './work_dirs/new_s0_struct_s4_fixed_substructure'
