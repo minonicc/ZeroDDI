@@ -130,13 +130,21 @@ def main():
     require_differences(
         top64,
         top128,
-        {"model.matching_pharmacophore_top_k", "work_dir"},
+        {
+            "model.matching_pharmacophore_top_k",
+            "provisional_dependency",
+            "work_dir",
+        },
         "pair Top-64 versus Top-128",
     )
     require_differences(
         top128,
         top256,
-        {"model.matching_pharmacophore_top_k", "work_dir"},
+        {
+            "model.matching_pharmacophore_top_k",
+            "provisional_dependency",
+            "work_dir",
+        },
         "pair Top-128 versus Top-256",
     )
     require_differences(
