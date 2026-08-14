@@ -219,6 +219,24 @@ minutes. Explicit checkpoint evaluation retains the default full metric path
 and therefore computes both macro and micro PR-AUC once for the final report.
 This does not alter checkpoint selection, which never uses PR-AUC.
 
+P2 and P3 completed exact ordered validation epochs 1--100. P2 selected epoch
+99 (validation ACC 0.927197, Kappa 0.920184, Macro-F1 0.835698); P3 selected
+epoch 84 (validation ACC 0.917562, Kappa 0.909645, Macro-F1 0.848417). Their
+validation-selected S0 test results are recorded separately as `finaltest`
+rows: P2 ACC/Kappa/Macro-F1 = 0.927150/0.920189/0.834817 and P3 =
+0.916101/0.908090/0.821463. These test values are final reporting outputs and
+are not used to choose the stage-one winner; P1 must finish before that
+validation-only decision is locked.
+
+Struct-S4 also completed exact epochs 1--100 and selected epoch 100. Its
+validation ACC/Kappa/Macro-F1 are 0.919065/0.911319/0.785700; the corresponding
+test values are 0.919130/0.911441/0.794708. The learned residual coefficient
+grew monotonically from 0 to 11.060376. Although training remained finite,
+this is an abnormally large residual scale and is evidence that the unbounded
+fixed-substructure residual dominates rather than remaining a small correction.
+The observation is reported as a diagnostic conclusion; it is not used to
+alter this completed experiment after viewing test results.
+
 Epoch-level evidence diagnostics can be flattened with
 `tools/summarize_pharmacophore_diagnostics.py`. The script combines diagnostics
 JSONL with alpha values from training logs, preserves class/type arrays as JSON,
