@@ -412,6 +412,44 @@ def main():
     )
     direct_drug_top_k_outputs["loss"].backward()
     assert shared_pair_encoder.pair_mlp[0].weight.grad is not None
+
+    refined_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_pharmacophore_evidence=True,
+        pharmacophore_evidence_dim=evidence_dim,
+        pharmacophore_drug_top_k=3,
+        pharmacophore_drug_pair_top_k=5,
+        pharmacophore_candidate_chunk_size=2,
+        pharmacophore_shared_pair_encoder=shared_pair_encoder,
+    )
+    refined_outputs = refined_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels,
+        pharmacophore_valid_pair_count=available_pair_count,
+        pharmacophore_drug_a_nodes=drug_a_nodes,
+        pharmacophore_drug_a_types=drug_a_types,
+        pharmacophore_drug_a_mask=drug_a_mask,
+        pharmacophore_drug_b_nodes=drug_b_nodes,
+        pharmacophore_drug_b_types=drug_b_types,
+        pharmacophore_drug_b_mask=drug_b_mask,
+        pharmacophore_drug_b_count=drug_b_count,
+    )
+    refined_mask = refined_outputs["pharmacophore_selection_mask"]
+    assert refined_mask.shape == (batch_size, num_events, 6)
+    assert refined_mask[0, :, :-1].sum(dim=-1).eq(2).all()
+    assert not refined_mask[1, :, :-1].any()
+    assert refined_mask[:, :, -1].all()
+    assert torch.allclose(
+        refined_outputs["pharmacophore_attention"].sum(dim=-1),
+        torch.ones(batch_size, num_events),
+        atol=1e-6,
+    )
+    refined_outputs["loss"].backward()
     selector_parameter_names = dict(
         drug_top_k_model.pharmacophore_drug_selector.named_parameters()
     )

@@ -263,6 +263,7 @@ class CandidateSpecificDrugPairSelector(nn.Module):
         pair_dim,
         output_dim,
         top_k,
+        pair_top_k=None,
         type_dim=32,
         num_types=6,
         dropout=0.1,
@@ -272,6 +273,9 @@ class CandidateSpecificDrugPairSelector(nn.Module):
     ):
         super().__init__()
         self.top_k = int(top_k)
+        self.pair_top_k = None if pair_top_k is None else int(pair_top_k)
+        if self.pair_top_k is not None and self.pair_top_k <= 0:
+            raise ValueError("pair_top_k must be positive")
         self.output_dim = output_dim
         self.candidate_chunk_size = int(candidate_chunk_size)
         self.use_null_evidence = use_null_evidence
@@ -357,6 +361,26 @@ class CandidateSpecificDrugPairSelector(nn.Module):
         pair_scores = (chunk_query.unsqueeze(2) * self.pair_key(pair_tokens)).sum(dim=-1)
         pair_scores = pair_scores / math.sqrt(self.output_dim)
         pair_values = self.pair_value(pair_tokens)
+        real_pair_valid = pair_valid[..., : pair_scores.size(-1)]
+        aggregate_valid = real_pair_valid
+        if self.pair_top_k is not None:
+            selected_count = min(self.pair_top_k, pair_scores.size(-1))
+            ranked_scores = pair_scores.masked_fill(
+                ~real_pair_valid, torch.finfo(pair_scores.dtype).min
+            )
+            pair_scores, pair_indices = torch.topk(
+                ranked_scores, selected_count, dim=-1
+            )
+            aggregate_valid = torch.gather(
+                real_pair_valid, 2, pair_indices
+            )
+            pair_values = torch.gather(
+                pair_values,
+                2,
+                pair_indices.unsqueeze(-1).expand(
+                    -1, -1, -1, pair_values.size(-1)
+                ),
+            )
         if self.use_null_evidence:
             null_pair = self.null_pair.expand(left.size(0), -1, -1)
             null_key = self.pair_key(null_pair).unsqueeze(1)
@@ -367,12 +391,27 @@ class CandidateSpecificDrugPairSelector(nn.Module):
             null_score = null_score / math.sqrt(self.output_dim)
             pair_scores = torch.cat([pair_scores, null_score], dim=-1)
             pair_values = torch.cat([pair_values, null_value], dim=2)
+            aggregate_valid = torch.cat(
+                [
+                    aggregate_valid,
+                    torch.ones(
+                        aggregate_valid.size(0),
+                        aggregate_valid.size(1),
+                        1,
+                        dtype=torch.bool,
+                        device=aggregate_valid.device,
+                    ),
+                ],
+                dim=-1,
+            )
         pair_scores = pair_scores.masked_fill(
-            ~pair_valid, torch.finfo(pair_scores.dtype).min
+            ~aggregate_valid, torch.finfo(pair_scores.dtype).min
         )
-        attention = F.softmax(pair_scores, dim=-1).masked_fill(~pair_valid, 0.0)
+        attention = F.softmax(pair_scores, dim=-1).masked_fill(
+            ~aggregate_valid, 0.0
+        )
         selected = torch.matmul(attention.unsqueeze(-2), pair_values).squeeze(-2)
-        return selected, attention
+        return selected, attention, aggregate_valid
 
     def _aggregate_precomputed_chunk(
         self, chunk_query, pair_tokens, linear_indices, pair_valid
@@ -484,12 +523,16 @@ class CandidateSpecificDrugPairSelector(nn.Module):
                 pair_valid,
             )
             if self.training:
-                selected, attention = checkpoint(self._encode_chunk, *encode_args)
+                selected, attention, aggregate_valid = checkpoint(
+                    self._encode_chunk, *encode_args
+                )
             else:
-                selected, attention = self._encode_chunk(*encode_args)
+                selected, attention, aggregate_valid = self._encode_chunk(
+                    *encode_args
+                )
             selected_chunks.append(selected)
             attention_chunks.append(attention)
-            pair_mask_chunks.append(pair_valid)
+            pair_mask_chunks.append(aggregate_valid)
 
         return {
             "selected": torch.cat(selected_chunks, dim=1),
@@ -657,6 +700,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_top_k_aggregation="softmax",
         pharmacophore_use_null_evidence=None,
         pharmacophore_drug_top_k=None,
+        pharmacophore_drug_pair_top_k=None,
         pharmacophore_type_dim=32,
         pharmacophore_candidate_chunk_size=8,
         pharmacophore_shared_pair_encoder=None,
@@ -716,6 +760,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     pair_dim=pharmacophore_evidence_dim,
                     output_dim=self.pharmacophore_hidden_dim,
                     top_k=self.pharmacophore_drug_top_k,
+                    pair_top_k=pharmacophore_drug_pair_top_k,
                     type_dim=pharmacophore_type_dim,
                     dropout=dropout,
                     candidate_chunk_size=pharmacophore_candidate_chunk_size,

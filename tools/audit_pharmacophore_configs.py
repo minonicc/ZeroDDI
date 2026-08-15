@@ -176,8 +176,24 @@ def main():
     require_differences(
         drug12,
         drug16,
-        {"model.matching_pharmacophore_drug_top_k", "work_dir"},
+        {
+            "model.matching_pharmacophore_drug_pair_top_k",
+            "model.matching_pharmacophore_drug_top_k",
+            "work_dir",
+        },
         "per-drug Top-12 versus Top-16",
+    )
+    require_differences(
+        p8,
+        drug16,
+        {
+            "model.leftmodel.pharmacophore_max_pairs",
+            "model.leftmodel.pharmacophore_selection_mode",
+            "model.matching_pharmacophore_candidate_chunk_size",
+            "model.matching_pharmacophore_drug_top_k",
+            "work_dir",
+        },
+        "P8 fixed-prefix 256 versus per-drug Top-16 product",
     )
     require_differences(
         top128,
@@ -185,9 +201,10 @@ def main():
         {
             "model.leftmodel.pharmacophore_selection_mode",
             "model.matching_pharmacophore_candidate_chunk_size",
+            "model.matching_pharmacophore_drug_pair_top_k",
             "model.matching_pharmacophore_drug_top_k",
             "model.matching_pharmacophore_top_k",
-            "provisional_dependency",
+            "model.matching_use_pharmacophore_gate",
             "work_dir",
         },
         "pair Top-128 versus per-drug Top-12",
@@ -204,12 +221,14 @@ def main():
         assert config.model.leftmodel.pharmacophore_pooling == "sum"
         assert not config.model.matching_use_pharmacophore_gate
     assert struct_s4.get("provisional_dependency", None) is None
-    for config in (top64, drug12, drug16):
+    for config in (top64,):
         assert config.provisional_dependency == "stage2_validation_winner"
         assert config.model.leftmodel.pharmacophore_max_pairs is None
         assert config.model.matching_use_pharmacophore_evidence
     assert top128.get("provisional_dependency", None) is None
     assert top256.get("provisional_dependency", None) is None
+    assert drug12.get("provisional_dependency", None) is None
+    assert drug16.get("provisional_dependency", None) is None
     assert top128.model.leftmodel.pharmacophore_max_pairs is None
     assert top128.model.matching_use_pharmacophore_evidence
     assert top64.model.matching_pharmacophore_top_k == 64
@@ -219,7 +238,15 @@ def main():
     assert top256.model.matching_pharmacophore_candidate_chunk_size == 4
     assert not top256.model.matching_use_pharmacophore_gate
     assert drug12.model.matching_pharmacophore_drug_top_k == 12
+    assert drug12.model.matching_pharmacophore_drug_pair_top_k == 128
+    assert drug12.model.matching_pharmacophore_candidate_chunk_size == 2
     assert drug16.model.matching_pharmacophore_drug_top_k == 16
+    assert drug16.model.get("matching_pharmacophore_drug_pair_top_k", None) is None
+    assert drug16.model.matching_pharmacophore_candidate_chunk_size == 2
+    for config in (drug12, drug16):
+        assert config.model.leftmodel.pharmacophore_max_pairs is None
+        assert config.model.matching_use_pharmacophore_evidence
+        assert not config.model.matching_use_pharmacophore_gate
     print("pharmacophore controlled-config audit ok")
 
 
