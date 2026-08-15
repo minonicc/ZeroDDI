@@ -161,18 +161,26 @@ class DDIEGuidedEvidenceSelector(nn.Module):
             ~evidence_mask.unsqueeze(1), torch.finfo(scores.dtype).min
         )
         top_scores, top_indices = torch.topk(scores, selected_count, dim=-1)
-        expanded_mask = evidence_mask.unsqueeze(1).expand(
-            -1, chunk_query.size(1), -1
+        # Avoid gathering from an expanded [B, C, E, H] view. Although expand
+        # is free in forward, gather backward materializes a dense gradient of
+        # that shape (several GiB for complete pharmacophore pair sets).
+        # Flattening the batch/evidence axes gives the identical indexed values
+        # while accumulating gradients directly into the original [B, E, H].
+        batch_offsets = (
+            torch.arange(value.size(0), device=value.device) * value.size(1)
+        ).view(-1, 1, 1)
+        flat_indices = (top_indices + batch_offsets).reshape(-1)
+        top_values = value.reshape(-1, value.size(-1)).index_select(
+            0, flat_indices
+        ).view(
+            value.size(0),
+            chunk_query.size(1),
+            selected_count,
+            value.size(-1),
         )
-        top_valid = torch.gather(expanded_mask, 2, top_indices)
-        expanded_value = value.unsqueeze(1).expand(
-            -1, chunk_query.size(1), -1, -1
-        )
-        top_values = torch.gather(
-            expanded_value,
-            2,
-            top_indices.unsqueeze(-1).expand(-1, -1, -1, value.size(-1)),
-        )
+        top_valid = evidence_mask.reshape(-1).index_select(
+            0, flat_indices
+        ).view(value.size(0), chunk_query.size(1), selected_count)
         if self.use_null_evidence:
             null_scores = torch.matmul(chunk_query, null_key.transpose(1, 2))
             null_scores = null_scores / math.sqrt(self.hidden_dim)
