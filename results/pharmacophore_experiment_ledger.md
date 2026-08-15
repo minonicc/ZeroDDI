@@ -1,5 +1,23 @@
 # Pharmacophore experiment ledger
 
+## Two-stage single-drug filtering launches
+
+Commit `ff58709` adds the formal candidate-specific single-drug filters. On
+2026-08-15 at 20:39 Asia/Shanghai, D3-16 started in tmux session
+`zeroddi_d3_top16_p8_100` on physical GPU 5, and D3-12-P128 started in
+`zeroddi_d3_top12_pair128_p0_100` on physical GPU 6. Both use seed 42, 100
+epochs, explicit `CUDA_VISIBLE_DEVICES`, eight CPU threads, softmax aggregation
+with null evidence, no pharmacophore gate, and candidate chunks of two.
+
+D3-16 first selects each drug's DDIE-specific Top-16 pharmacophores and forms
+at most 256 real pairs, making P8's 256-pair budget its direct control.
+D3-12-P128 selects Top-12 on both drugs, forms at most 144 real pairs, ranks
+those pairs for the same DDIE, and retains the best 128 before appending null;
+it therefore compares directly with P0/T3's 128-real-pair budget. The null
+token never consumes a real-pair Top-K slot. Initial training allocation was
+about 25.6 GiB and 25.2 GiB respectively on 40 GiB GPUs, leaving substantial
+headroom after the candidate chunking and activation-checkpointing controls.
+
 ## Protocol audit
 
 - Training entry point: `main.py`, which calls `tools.train.train_model`.
