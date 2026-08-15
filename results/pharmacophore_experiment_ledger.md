@@ -269,6 +269,14 @@ physical GPU 6, tmux session `zeroddi_p8_256_sum_100`, and work directory
 debug was also proposed for idle GPU 7, but its tmux creation permission was
 rejected before launch; no stage-three result is claimed from that request.
 
+P8 completed exact epochs 1--100 and selected validation epoch 97 with
+ACC/Kappa/Macro-F1 0.923784/0.916474/0.827939. The validation-selected S0 test
+checkpoint produced 0.923470/0.916192/0.852360, with PR-AUC macro/micro
+0.907435/0.976330. Its Macro-F1 is the highest current S0 result (0.008712
+above P0 and 0.011376 above B0), while ACC and Kappa remain lower than both
+references. Thus 256 + sum is the strongest class-balanced pair-count setting,
+not a three-metric overall improvement.
+
 The stage-three representative comparison was subsequently launched directly
 for 100 epochs from the P0-controlled T3-128 architecture. Session
 `zeroddi_t3_top128_softmax_100` uses physical GPU 7 and retains the specified
