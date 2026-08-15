@@ -277,6 +277,15 @@ above P0 and 0.011376 above B0), while ACC and Kappa remain lower than both
 references. Thus 256 + sum is the strongest class-balanced pair-count setting,
 not a three-metric overall improvement.
 
+Because P8 established 256 + sum as the strongest Macro-F1 pair-count setting,
+the stage-three Top-256 template was promoted to a direct formal control rather
+than launching the less interpretable remaining sweep. It exposes the complete
+valid pair set and selects candidate-specific DDIE Top-256 while keeping the
+P8 architecture, sum pooling, no-gate setting, seed, optimizer, and 100-epoch
+protocol fixed. The audited config uses commit `1a055bd`, physical GPU 4,
+tmux session `zeroddi_t2_top256_p8_100`, and work directory
+`work_dirs/formal100_t2_top256_p8`. GPUs 5 and 6 remain unassigned.
+
 The stage-three representative comparison was subsequently launched directly
 for 100 epochs from the P0-controlled T3-128 architecture. Session
 `zeroddi_t3_top128_softmax_100` uses physical GPU 7 and retains the specified
