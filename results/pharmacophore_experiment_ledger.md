@@ -249,6 +249,18 @@ directory `work_dirs/formal100_struct_s1_p0`; Struct-S3 runs in
 threads, and validation Macro-F1 checkpoint selection before S0 test structure
 comparison.
 
+Struct-S1 and Struct-S3 completed exact epochs 1--100. Struct-S1 selected
+validation epoch 95 with ACC/Kappa/Macro-F1
+0.914247/0.906093/0.803498; its S0 test values are
+0.913894/0.905755/0.804786. Struct-S3 selected validation epoch 97 with
+0.915178/0.907025/0.802926; its S0 test values are
+0.914912/0.906815/0.818210. Struct-S3 is higher than Struct-S1 on all three
+test metrics, but neither improves on the P0/B0 structure reference. Its
+fixed-substructure residual coefficient reached -10.974743, mirroring the
+large-magnitude residual observed for Struct-S4. Final test evaluations used
+physical GPUs 0 and 1 and the validation-selected checkpoints; complete
+PR-AUC outputs remain in their evaluation logs.
+
 An additional intermediate pair-count control, P8 (256 + sum + no gate), was
 added at commit `1b4c678`. Its audit proves that it differs from P2 only in
 `pharmacophore_max_pairs` (256 versus 512). The 100-epoch seed-42 run uses
