@@ -1,5 +1,16 @@
 # Pharmacophore experiment ledger
 
+## T3-128 sigmoid-mean final evaluation
+
+The independent-sigmoid Top-128 run completed all 100 epochs and selected
+epoch 96 by validation Macro-F1 (ACC 0.922184, Kappa 0.914778, Macro-F1
+0.848630). Its complete S0 test evaluation produced ACC 0.922704, Kappa
+0.915384, Macro-F1 0.844159, PR-AUC-macro 0.898243, and PR-AUC-micro
+0.976746. Compared with fixed-prefix P0, Macro-F1 is higher by 0.000511 while
+ACC and Kappa are lower by 0.002927 and 0.003150. This is a metric trade-off,
+not an overall improvement; it does outperform the Top-128 softmax variant on
+test Macro-F1 by 0.005499.
+
 ## T3-128 softmax final evaluation
 
 The candidate-specific pair Top-128 softmax-plus-null run completed all 100
