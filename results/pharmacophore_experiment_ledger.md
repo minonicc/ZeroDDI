@@ -1,5 +1,16 @@
 # Pharmacophore experiment ledger
 
+## T3-128 softmax final evaluation
+
+The candidate-specific pair Top-128 softmax-plus-null run completed all 100
+epochs on 2026-08-17. Validation Macro-F1 selected epoch 86 (ACC 0.924650,
+Kappa 0.917427, Macro-F1 0.848714). Its validation-selected checkpoint was
+evaluated once on the complete 122,814-row S0 test split, producing ACC
+0.923942, Kappa 0.916693, Macro-F1 0.838660, PR-AUC-macro 0.905247, and
+PR-AUC-micro 0.977632. It is below fixed-prefix P0 on all three primary test
+metrics, so pair-level DDIE Top-128 does not improve that direct 128-pair
+control in this run.
+
 ## Two-stage single-drug filtering launches
 
 Commit `ff58709` adds the formal candidate-specific single-drug filters. On
