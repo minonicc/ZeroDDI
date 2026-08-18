@@ -1,5 +1,17 @@
 # Pharmacophore experiment ledger
 
+## T2-256 final evaluation
+
+The candidate-specific pair Top-256 run completed all 100 epochs and selected
+epoch 97 by validation Macro-F1 (ACC 0.926217, Kappa 0.919183, Macro-F1
+0.829412). Its complete S0 test evaluation produced ACC 0.925831, Kappa
+0.918806, Macro-F1 0.845732, PR-AUC-macro 0.905221, and PR-AUC-micro
+0.978325. It exceeds fixed-prefix P0 by 0.000200 ACC, 0.000272 Kappa, and
+0.002084 Macro-F1, making it the first candidate-specific filtering variant to
+improve all three primary metrics over its 128-pair control. Relative to
+fixed-prefix P8, it gains 0.002361 ACC and 0.002614 Kappa but loses 0.006628
+Macro-F1. It still does not dominate B0, whose ACC and Kappa remain higher.
+
 ## T3-128 sigmoid-mean final evaluation
 
 The independent-sigmoid Top-128 run completed all 100 epochs and selected
