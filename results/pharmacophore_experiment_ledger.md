@@ -1,5 +1,22 @@
 # Pharmacophore experiment ledger
 
+## D3 two-stage single-drug filtering final evaluations
+
+Both candidate-specific single-drug runs completed all 100 epochs. D3-16
+selected epoch 86 on validation and produced test ACC 0.924927, Kappa 0.917808,
+Macro-F1 0.842333, PR-AUC-macro 0.906312, and PR-AUC-micro 0.977585. It is
+below pair-level Top-256 on all three primary metrics, so expanding each side
+to Top-16 and aggregating the full Cartesian product is not beneficial.
+
+D3-12-P128 selected epoch 100 on validation and produced test ACC 0.927753,
+Kappa 0.920840, Macro-F1 0.847339, PR-AUC-macro 0.915426, and PR-AUC-micro
+0.979336. Relative to historical B0 it gains 0.000501 ACC, 0.000481 Kappa,
+and 0.006355 Macro-F1, making it the first run to exceed B0 on all three
+primary metrics. Relative to P0 it gains 0.002122 ACC, 0.002306 Kappa, and
+0.003691 Macro-F1. The result supports hierarchical filtering: per-drug
+Top-12 removes weak marginal pharmacophores, and the subsequent DDIE pair
+Top-128 removes the weakest combinations from the at-most-144 product.
+
 ## T2-256 final evaluation
 
 The candidate-specific pair Top-256 run completed all 100 epochs and selected
