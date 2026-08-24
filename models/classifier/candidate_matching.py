@@ -253,6 +253,61 @@ class KGEvidenceFeatureEncoder(nn.Module):
         return self.dropout(self.norm(encoded))
 
 
+class PharmacophoreNodeEvidenceSelector(nn.Module):
+    """Query the two drugs' typed pharmacophore nodes without making pairs."""
+
+    def __init__(
+        self,
+        atom_dim,
+        event_dim,
+        output_dim,
+        type_dim=32,
+        num_types=6,
+        dropout=0.1,
+        use_null_evidence=True,
+    ):
+        super().__init__()
+        self.type_embedding = nn.Embedding(num_types, type_dim)
+        self.node_encoder = nn.Sequential(
+            nn.Linear(atom_dim + type_dim, atom_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.LayerNorm(atom_dim),
+        )
+        self.selector = DDIEGuidedEvidenceSelector(
+            evidence_dim=atom_dim,
+            event_dim=event_dim,
+            hidden_dim=output_dim,
+            use_null_evidence=use_null_evidence,
+        )
+
+    def forward(
+        self,
+        event_tokens,
+        nodes_a,
+        types_a,
+        mask_a,
+        nodes_b,
+        types_b,
+        mask_b,
+    ):
+        nodes = torch.cat([nodes_a, nodes_b], dim=1)
+        types = torch.cat([types_a, types_b], dim=1)
+        mask = torch.cat([mask_a, mask_b], dim=1)
+        typed_nodes = self.node_encoder(
+            torch.cat([nodes, self.type_embedding(types)], dim=-1)
+        )
+        selected, attention, indices, selection_mask = self.selector(
+            event_tokens, typed_nodes, mask
+        )
+        return {
+            "selected": selected,
+            "attention": attention,
+            "indices": indices,
+            "mask": selection_mask,
+        }
+
+
 class CandidateSpecificDrugPairSelector(nn.Module):
     """Select each drug's pharmacophores per DDIE, then encode their product."""
 
@@ -699,6 +754,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_top_k=None,
         pharmacophore_top_k_aggregation="softmax",
         pharmacophore_use_null_evidence=None,
+        pharmacophore_use_drug_nodes=False,
         pharmacophore_drug_top_k=None,
         pharmacophore_drug_pair_top_k=None,
         pharmacophore_type_dim=32,
@@ -723,6 +779,13 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         if pharmacophore_use_null_evidence is None:
             pharmacophore_use_null_evidence = use_null_evidence
         self.pharmacophore_drug_top_k = pharmacophore_drug_top_k
+        self.pharmacophore_use_drug_nodes = pharmacophore_use_drug_nodes
+        if self.pharmacophore_use_drug_nodes and (
+            pharmacophore_top_k is not None or pharmacophore_drug_top_k is not None
+        ):
+            raise ValueError(
+                "direct pharmacophore nodes are mutually exclusive with pair/drug Top-K"
+            )
         if pharmacophore_top_k is not None and pharmacophore_drug_top_k is not None:
             raise ValueError(
                 "pair-level and drug-level pharmacophore Top-K are mutually exclusive"
@@ -753,7 +816,16 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                 use_null_evidence=use_null_evidence,
             )
         if self.use_pharmacophore_evidence:
-            if self.pharmacophore_drug_top_k is not None:
+            if self.pharmacophore_use_drug_nodes:
+                self.pharmacophore_node_selector = PharmacophoreNodeEvidenceSelector(
+                    atom_dim=pharmacophore_evidence_dim,
+                    event_dim=event_dim,
+                    output_dim=self.pharmacophore_hidden_dim,
+                    type_dim=pharmacophore_type_dim,
+                    dropout=dropout,
+                    use_null_evidence=pharmacophore_use_null_evidence,
+                )
+            elif self.pharmacophore_drug_top_k is not None:
                 self.pharmacophore_drug_selector = CandidateSpecificDrugPairSelector(
                     atom_dim=pharmacophore_evidence_dim,
                     event_dim=event_dim,
@@ -870,7 +942,33 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_drug_selection = None
         pharmacophore_gate = None
         if self.use_pharmacophore_evidence:
-            if self.pharmacophore_drug_top_k is not None:
+            if self.pharmacophore_use_drug_nodes:
+                required = (
+                    pharmacophore_drug_a_nodes,
+                    pharmacophore_drug_a_types,
+                    pharmacophore_drug_a_mask,
+                    pharmacophore_drug_b_nodes,
+                    pharmacophore_drug_b_types,
+                    pharmacophore_drug_b_mask,
+                )
+                if any(value is None for value in required):
+                    raise ValueError(
+                        "direct pharmacophore nodes require both drugs' nodes, types, and masks"
+                    )
+                node_selection = self.pharmacophore_node_selector(
+                    event_tokens,
+                    pharmacophore_drug_a_nodes,
+                    pharmacophore_drug_a_types,
+                    pharmacophore_drug_a_mask,
+                    pharmacophore_drug_b_nodes,
+                    pharmacophore_drug_b_types,
+                    pharmacophore_drug_b_mask,
+                )
+                pharmacophore_selected = node_selection["selected"]
+                pharmacophore_attention = node_selection["attention"]
+                pharmacophore_selection_indices = node_selection["indices"]
+                pharmacophore_selection_mask = node_selection["mask"]
+            elif self.pharmacophore_drug_top_k is not None:
                 required = (
                     pharmacophore_drug_a_nodes,
                     pharmacophore_drug_a_types,

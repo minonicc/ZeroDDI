@@ -65,6 +65,7 @@ def main():
     top256 = load("new_s0_pharmacophore_t2_top256.py")
     drug12 = load("new_s0_pharmacophore_d3_drug_top12.py")
     drug16 = load("new_s0_pharmacophore_d3_drug_top16.py")
+    nodes = load("new_s0_pharmacophore_n1_nodes.py")
 
     require_differences(
         top128,
@@ -209,6 +210,18 @@ def main():
         },
         "pair Top-128 versus per-drug Top-12",
     )
+    require_differences(
+        p8,
+        nodes,
+        {
+            "model.leftmodel.pharmacophore_max_pairs",
+            "model.leftmodel.pharmacophore_selection_mode",
+            "model.matching_pharmacophore_use_drug_nodes",
+            "model.matching_pharmacophore_use_null_evidence",
+            "work_dir",
+        },
+        "P8 pair evidence versus direct typed pharmacophore nodes",
+    )
 
     assert struct_s1.model.matching_use_kg_evidence
     assert not struct_s1.model.matching_use_substructure_evidence
@@ -247,6 +260,13 @@ def main():
         assert config.model.leftmodel.pharmacophore_max_pairs is None
         assert config.model.matching_use_pharmacophore_evidence
         assert not config.model.matching_use_pharmacophore_gate
+    assert nodes.model.leftmodel.pharmacophore_selection_mode == "drug_nodes"
+    assert nodes.model.leftmodel.pharmacophore_max_pairs is None
+    assert nodes.model.matching_pharmacophore_use_drug_nodes
+    assert nodes.model.matching_pharmacophore_use_null_evidence
+    assert nodes.model.get("matching_pharmacophore_top_k", None) is None
+    assert nodes.model.get("matching_pharmacophore_drug_top_k", None) is None
+    assert not nodes.model.matching_use_pharmacophore_gate
     print("pharmacophore controlled-config audit ok")
 
 

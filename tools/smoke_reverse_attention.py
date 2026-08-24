@@ -413,6 +413,46 @@ def main():
     direct_drug_top_k_outputs["loss"].backward()
     assert shared_pair_encoder.pair_mlp[0].weight.grad is not None
 
+    node_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_pharmacophore_evidence=True,
+        pharmacophore_evidence_dim=evidence_dim,
+        pharmacophore_use_drug_nodes=True,
+    )
+    node_count = drug_a_mask.sum(dim=-1) + drug_b_mask.sum(dim=-1)
+    node_outputs = node_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels,
+        pharmacophore_valid_pair_count=node_count,
+        pharmacophore_drug_a_nodes=drug_a_nodes,
+        pharmacophore_drug_a_types=drug_a_types,
+        pharmacophore_drug_a_mask=drug_a_mask,
+        pharmacophore_drug_b_nodes=drug_b_nodes,
+        pharmacophore_drug_b_types=drug_b_types,
+        pharmacophore_drug_b_mask=drug_b_mask,
+    )
+    assert node_outputs["pharmacophore_attention"].shape == (
+        batch_size,
+        num_events,
+        drug_a_nodes.size(1) + drug_b_nodes.size(1) + 1,
+    )
+    assert torch.allclose(
+        node_outputs["pharmacophore_attention"].sum(dim=-1),
+        torch.ones(batch_size, num_events),
+        atol=1e-6,
+    )
+    assert torch.equal(
+        node_outputs["pharmacophore_valid_pair_count"], node_count
+    )
+    node_outputs["loss"].backward()
+    assert node_model.pharmacophore_node_selector.node_encoder[0].weight.grad is not None
+    assert node_model.pharmacophore_node_selector.type_embedding.weight.grad is not None
+
     refined_model = ReverseAttentionCandidateMatcher(
         pair_dim=pair_dim,
         evidence_dim=evidence_dim,

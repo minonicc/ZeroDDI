@@ -370,9 +370,9 @@ class GNN_model(nn.Module):
                 "substructure query/base branches require use_sub=True"
             )
         self.use_pharmacophore_pairs = use_pharmacophore_pairs
-        if pharmacophore_selection_mode not in {"pairs", "drug_topk"}:
+        if pharmacophore_selection_mode not in {"pairs", "drug_topk", "drug_nodes"}:
             raise ValueError(
-                "pharmacophore_selection_mode must be 'pairs' or 'drug_topk'"
+                "pharmacophore_selection_mode must be 'pairs', 'drug_topk', or 'drug_nodes'"
             )
         self.pharmacophore_selection_mode = pharmacophore_selection_mode
         self.deduplicate_drugs_in_batch = deduplicate_drugs_in_batch
@@ -561,7 +561,7 @@ class GNN_model(nn.Module):
                     unique_drug_batch,
                     drug2_indices,
                 )
-            if self.pharmacophore_selection_mode == "drug_topk":
+            if self.pharmacophore_selection_mode in {"drug_topk", "drug_nodes"}:
                 nodes1, types1, mask1 = self.pharmacophore_pair_encoder.pool_drug_batch(
                     drug1_batch, drug1_features
                 )
@@ -569,12 +569,15 @@ class GNN_model(nn.Module):
                     drug2_batch, drug2_features
                 )
                 pharmacophore_evidence = {
-                    # D3 selects nodes first and only then constructs K x K
-                    # pairs in CandidateSpecificDrugPairSelector. Do not
-                    # materialize the complete Cartesian product here.
+                    # Candidate-specific node modes must not materialize the
+                    # complete Cartesian product in the left encoder.
                     "tokens": None,
                     "mask": None,
-                    "valid_pair_count": mask1.sum(dim=-1) * mask2.sum(dim=-1),
+                    "valid_pair_count": (
+                        mask1.sum(dim=-1) + mask2.sum(dim=-1)
+                        if self.pharmacophore_selection_mode == "drug_nodes"
+                        else mask1.sum(dim=-1) * mask2.sum(dim=-1)
+                    ),
                     "drug_a_nodes": nodes1,
                     "drug_a_types": types1,
                     "drug_a_mask": mask1,
