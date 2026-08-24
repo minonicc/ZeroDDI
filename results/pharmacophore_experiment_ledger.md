@@ -1,5 +1,21 @@
 # Pharmacophore experiment ledger
 
+## Direct typed pharmacophore-node experiment
+
+Commit `2e640e9` adds N1-Nodes, the strict analogue of the existing queried
+substructure branch. Each drug's pharmacophore atom representation is combined
+with its six-way pharmacophore type embedding, A/B nodes are concatenated into
+one evidence set, and every candidate DDIE applies softmax attention over all
+valid nodes plus null. It constructs no pharmacophore pairs, applies no hard
+Top-K, uses no pharmacophore gate, and otherwise retains the current S0 reverse
+KG model and formal training controls.
+
+A one-optimizer-step GPU smoke run completed a finite forward/backward update
+and full validation without shape, NaN, or OOM errors. The formal seed-42,
+100-epoch run started on physical GPU 4 at 2026-08-24 23:31 Asia/Shanghai in
+tmux session `zeroddi_n1_nodes_gpu4_100` with PID 214814. Initial steady
+allocation was about 11.9 GiB, substantially below the pair-based paths.
+
 ## D3 two-stage single-drug filtering final evaluations
 
 Both candidate-specific single-drug runs completed all 100 epochs. D3-16
