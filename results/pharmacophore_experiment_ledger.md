@@ -1,5 +1,19 @@
 # Pharmacophore experiment ledger
 
+## N1-Nodes final evaluation
+
+N1-Nodes completed all 100 epochs and selected epoch 100 on validation (ACC
+0.930708, Kappa 0.924128, Macro-F1 0.842515). Its complete S0 test evaluation
+produced ACC 0.929023, Kappa 0.922330, Macro-F1 0.844093, PR-AUC-macro
+0.904512, and PR-AUC-micro 0.979889. Relative to B0 it gains 0.001771 ACC,
+0.001971 Kappa, and 0.003109 Macro-F1, so it is the second pharmacophore
+design to dominate B0 on all three primary metrics and has the highest current
+ACC/Kappa. Relative to D3-12-P128 it gains 0.001270 ACC and 0.001490 Kappa but
+loses 0.003246 Macro-F1, establishing a clear overall-accuracy versus
+class-balance trade-off. Test attention used 26.456 valid nodes on average;
+the mean null weight was 0.094230, substantially more active than in pair-based
+variants.
+
 ## Direct typed pharmacophore-node experiment
 
 Commit `2e640e9` adds N1-Nodes, the strict analogue of the existing queried
