@@ -1,5 +1,19 @@
 # Pharmacophore experiment ledger
 
+## N1-Nodes transfer to data splits S1 and S2
+
+Commit `c33a578` transfers the S0-selected N1-Nodes architecture unchanged to
+the repository's real `drugbank_true_s1` and `drugbank_true_s2` splits. Each
+run retains seed 42, 100 epochs, batch size 128, learning rate 0.0001,
+softmax-plus-null typed-node attention, no pharmacophore pairs/Top-K/gate, and
+validation Macro-F1 checkpoint selection. Only split CSV and split-specific KG
+paths change; no S1/S2 metric is used to alter the architecture.
+
+Both formal runs started at 2026-08-25 23:36 Asia/Shanghai. S1 runs in tmux
+`zeroddi_s1_n1_gpu3_100` on physical GPU 3 with PID 248731; S2 runs in tmux
+`zeroddi_s2_n1_gpu4_100` on physical GPU 4 with PID 248733. Both loaded 383,444
+training instances and reached stable computation at about 11.3 GiB each.
+
 ## N1-Nodes final evaluation
 
 N1-Nodes completed all 100 epochs and selected epoch 100 on validation (ACC
