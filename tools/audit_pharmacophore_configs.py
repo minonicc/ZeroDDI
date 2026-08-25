@@ -66,6 +66,8 @@ def main():
     drug12 = load("new_s0_pharmacophore_d3_drug_top12.py")
     drug16 = load("new_s0_pharmacophore_d3_drug_top16.py")
     nodes = load("new_s0_pharmacophore_n1_nodes.py")
+    nodes_s1 = load("new_s1_pharmacophore_n1_nodes.py")
+    nodes_s2 = load("new_s2_pharmacophore_n1_nodes.py")
 
     require_differences(
         top128,
@@ -267,6 +269,22 @@ def main():
     assert nodes.model.get("matching_pharmacophore_top_k", None) is None
     assert nodes.model.get("matching_pharmacophore_drug_top_k", None) is None
     assert not nodes.model.matching_use_pharmacophore_gate
+    for transferred, split_name in ((nodes_s1, "s1"), (nodes_s2, "s2")):
+        assert transferred.model.leftmodel.pharmacophore_selection_mode == "drug_nodes"
+        assert transferred.model.leftmodel.pharmacophore_max_pairs is None
+        assert transferred.model.leftmodel.pharmacophore_pooling == "sum"
+        assert transferred.model.matching_pharmacophore_use_drug_nodes
+        assert transferred.model.matching_pharmacophore_use_null_evidence
+        assert transferred.model.get("matching_pharmacophore_top_k", None) is None
+        assert transferred.model.get("matching_pharmacophore_drug_top_k", None) is None
+        assert not transferred.model.matching_use_pharmacophore_gate
+        assert transferred.train_batch_size == nodes.train_batch_size == 128
+        assert transferred.learning_rate == nodes.learning_rate
+        assert transferred.num_epochs == nodes.num_epochs == 100
+        assert transferred.cpu_threads == nodes.cpu_threads == 8
+        assert f"drugbank_true_{split_name}" in transferred.knowddi_all_file
+        assert f"drugbank_true_{split_name}" in transferred.knowddi_split_dir
+        assert f"kg_{split_name}.json" in transferred.kg_pair_file
     print("pharmacophore controlled-config audit ok")
 
 
