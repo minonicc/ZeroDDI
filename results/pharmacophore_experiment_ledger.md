@@ -14,6 +14,17 @@ Both formal runs started at 2026-08-25 23:36 Asia/Shanghai. S1 runs in tmux
 `zeroddi_s2_n1_gpu4_100` on physical GPU 4 with PID 248733. Both loaded 383,444
 training instances and reached stable computation at about 11.3 GiB each.
 
+Both runs completed all 100 epochs on 2026-08-26. Validation Macro-F1 selected
+epoch 98 for S1 (ACC 0.555271, Kappa 0.512106, Macro-F1 0.399438) and epoch
+65 for S2 (ACC 0.329846, Kappa 0.260260, Macro-F1 0.229357). Their frozen,
+validation-selected checkpoints were evaluated on the complete test splits on
+2026-08-29 without further tuning. S1 produced ACC 0.551321, Kappa 0.507402,
+Macro-F1 0.407109, PR-AUC-macro 0.432586, and PR-AUC-micro 0.547814 over
+135,188 test instances. S2 produced ACC 0.335615, Kappa 0.266874, Macro-F1
+0.215994, PR-AUC-macro 0.238744, and PR-AUC-micro 0.282293 over 17,973 test
+instances. Test null attention averaged 0.091505 on S1 and 0.042737 on S2,
+with 26.358 and 26.107 valid pharmacophore nodes per sample respectively.
+
 ## N1-Nodes final evaluation
 
 N1-Nodes completed all 100 epochs and selected epoch 100 on validation (ACC
