@@ -45,6 +45,9 @@ class classifier(nn.Module):
                  matching_pharmacophore_drug_pair_top_k=None,
                  matching_pharmacophore_type_dim=32,
                  matching_pharmacophore_candidate_chunk_size=8,
+                 matching_use_mechanism_experts=False,
+                 matching_use_pairwise_interactions=False,
+                 matching_use_pairwise_gates=False,
                  semantic_aux_lambda=0.0,
                  use_sign_cls = False,
                  attributlabel=None,
@@ -135,6 +138,9 @@ class classifier(nn.Module):
                 pharmacophore_type_dim=matching_pharmacophore_type_dim,
                 pharmacophore_candidate_chunk_size=matching_pharmacophore_candidate_chunk_size,
                 pharmacophore_shared_pair_encoder=shared_pair_encoder,
+                use_mechanism_experts=matching_use_mechanism_experts,
+                use_pairwise_interactions=matching_use_pairwise_interactions,
+                use_pairwise_gates=matching_use_pairwise_gates,
             )
         elif self.matching_mode != 'zeroddi':
             raise ValueError(f"Unsupported matching_mode: {self.matching_mode}")
@@ -341,6 +347,11 @@ class classifier(nn.Module):
                 "pharmacophore_valid_pair_count"
             ],
             "pharmacophore_pair_types": pharmacophore_pair_types,
+            "mechanism_expert_outputs": outputs["mechanism_expert_outputs"],
+            "pairwise_interaction_outputs": outputs[
+                "pairwise_interaction_outputs"
+            ],
+            "pairwise_gate_weights": outputs["pairwise_gate_weights"],
         }
         return (
             outputs["logits"],

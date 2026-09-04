@@ -730,6 +730,80 @@ class CandidateMatchingHead(nn.Module):
         return self.scorer(features).squeeze(-1)
 
 
+class MechanismExpert(nn.Module):
+    """Interpret one DDIE-selected evidence source in the candidate context."""
+
+    def __init__(self, pair_dim, event_dim, evidence_dim, hidden_dim, dropout):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(pair_dim + event_dim + evidence_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+        )
+
+    def forward(self, pair_expand, event_expand, evidence):
+        return self.network(torch.cat([pair_expand, event_expand, evidence], dim=-1))
+
+
+class PairwiseMechanismInteraction(nn.Module):
+    """Build one candidate-conditioned representation from two mechanism experts."""
+
+    def __init__(
+        self,
+        pair_dim,
+        event_dim,
+        hidden_dim,
+        dropout,
+        use_gate=False,
+    ):
+        super().__init__()
+        self.use_gate = use_gate
+        if use_gate:
+            self.gate = nn.Sequential(
+                nn.Linear(pair_dim + event_dim + hidden_dim * 2, hidden_dim),
+                nn.LeakyReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, 2),
+            )
+            # Begin from an unbiased 0.5/0.5 mixture and let training learn
+            # candidate-specific departures from it.
+            nn.init.zeros_(self.gate[-1].weight)
+            nn.init.zeros_(self.gate[-1].bias)
+        self.interaction = nn.Sequential(
+            nn.Linear(hidden_dim * 4, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+        )
+
+    def forward(self, pair_expand, event_expand, first, second):
+        weights = None
+        first_for_fusion = first
+        second_for_fusion = second
+        if self.use_gate:
+            weights = F.softmax(
+                self.gate(
+                    torch.cat([pair_expand, event_expand, first, second], dim=-1)
+                ),
+                dim=-1,
+            )
+            first_for_fusion = weights[..., 0:1] * first
+            second_for_fusion = weights[..., 1:2] * second
+        features = torch.cat(
+            [
+                first_for_fusion,
+                second_for_fusion,
+                first_for_fusion * second_for_fusion,
+                torch.abs(first_for_fusion - second_for_fusion),
+            ],
+            dim=-1,
+        )
+        return self.interaction(features), weights
+
+
 class ReverseAttentionCandidateMatcher(nn.Module):
     """Minimal DDIE-query-to-drug-evidence matching model."""
 
@@ -760,6 +834,9 @@ class ReverseAttentionCandidateMatcher(nn.Module):
         pharmacophore_type_dim=32,
         pharmacophore_candidate_chunk_size=8,
         pharmacophore_shared_pair_encoder=None,
+        use_mechanism_experts=False,
+        use_pairwise_interactions=False,
+        use_pairwise_gates=False,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -794,6 +871,21 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             raise ValueError(
                 "use_pharmacophore_gate requires use_pharmacophore_evidence=True"
             )
+        self.use_mechanism_experts = use_mechanism_experts
+        self.use_pairwise_interactions = use_pairwise_interactions
+        self.use_pairwise_gates = use_pairwise_gates
+        if self.use_mechanism_experts and not (
+            self.use_substructure_evidence
+            and self.use_kg_evidence
+            and self.use_pharmacophore_evidence
+        ):
+            raise ValueError(
+                "mechanism experts require substructure, KG, and pharmacophore evidence"
+            )
+        if self.use_pairwise_interactions and not self.use_mechanism_experts:
+            raise ValueError("pairwise interactions require mechanism experts")
+        if self.use_pairwise_gates and not self.use_pairwise_interactions:
+            raise ValueError("pairwise gates require pairwise interactions")
         self.kg_feature_encoder = None
         if self.use_substructure_evidence:
             self.selector = DDIEGuidedEvidenceSelector(
@@ -867,10 +959,47 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                 nn.Linear(hidden_dim, 1),
                 nn.Sigmoid(),
             )
-        self.scorer = CandidateMatchingHead(
-            pair_dim=pair_dim,
-            event_dim=event_dim,
-            evidence_dim=(
+        if self.use_mechanism_experts:
+            self.mechanism_experts = nn.ModuleDict(
+                {
+                    "substructure": MechanismExpert(
+                        pair_dim, event_dim, hidden_dim, hidden_dim, dropout
+                    ),
+                    "kg": MechanismExpert(
+                        pair_dim, event_dim, self.kg_hidden_dim, hidden_dim, dropout
+                    ),
+                    "pharmacophore": MechanismExpert(
+                        pair_dim,
+                        event_dim,
+                        self.pharmacophore_hidden_dim,
+                        hidden_dim,
+                        dropout,
+                    ),
+                }
+            )
+        if self.use_pairwise_interactions:
+            self.pairwise_interactions = nn.ModuleDict(
+                {
+                    name: PairwiseMechanismInteraction(
+                        pair_dim,
+                        event_dim,
+                        hidden_dim,
+                        dropout,
+                        use_gate=self.use_pairwise_gates,
+                    )
+                    for name in (
+                        "substructure_kg",
+                        "substructure_pharmacophore",
+                        "kg_pharmacophore",
+                    )
+                }
+            )
+        if self.use_mechanism_experts:
+            scorer_evidence_dim = hidden_dim * (
+                3 + (3 if self.use_pairwise_interactions else 0)
+            )
+        else:
+            scorer_evidence_dim = (
                 (hidden_dim if self.use_substructure_evidence else 0)
                 + (self.kg_hidden_dim if self.use_kg_evidence else 0)
                 + (
@@ -878,7 +1007,11 @@ class ReverseAttentionCandidateMatcher(nn.Module):
                     if self.use_pharmacophore_evidence
                     else 0
                 )
-            ),
+            )
+        self.scorer = CandidateMatchingHead(
+            pair_dim=pair_dim,
+            event_dim=event_dim,
+            evidence_dim=scorer_evidence_dim,
             hidden_dim=hidden_dim,
             dropout=dropout,
         )
@@ -1040,14 +1173,64 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             evidence_gate = self.evidence_gate(gate_input)
             selected = selected * evidence_gate
 
-        selected_for_score = selected if self.use_substructure_evidence else selected[..., :0]
-        if self.use_kg_evidence:
-            selected_for_score = torch.cat([selected_for_score, kg_selected], dim=-1)
-        if self.use_pharmacophore_evidence:
-            selected_for_score = torch.cat(
-                [selected_for_score, pharmacophore_selected],
-                dim=-1,
+        mechanism_expert_outputs = None
+        pairwise_interaction_outputs = None
+        pairwise_gate_weights = None
+        if self.use_mechanism_experts:
+            event_repr = pool_event_tokens(event_tokens)
+            pair_expand = pair_repr.unsqueeze(1).expand(
+                pair_repr.size(0), event_repr.size(0), -1
             )
+            event_expand = event_repr.unsqueeze(0).expand(
+                pair_repr.size(0), event_repr.size(0), -1
+            )
+            mechanism_expert_outputs = {
+                "substructure": self.mechanism_experts["substructure"](
+                    pair_expand, event_expand, selected
+                ),
+                "kg": self.mechanism_experts["kg"](
+                    pair_expand, event_expand, kg_selected
+                ),
+                "pharmacophore": self.mechanism_experts["pharmacophore"](
+                    pair_expand, event_expand, pharmacophore_selected
+                ),
+            }
+            score_parts = list(mechanism_expert_outputs.values())
+            if self.use_pairwise_interactions:
+                mechanism_pairs = {
+                    "substructure_kg": ("substructure", "kg"),
+                    "substructure_pharmacophore": (
+                        "substructure",
+                        "pharmacophore",
+                    ),
+                    "kg_pharmacophore": ("kg", "pharmacophore"),
+                }
+                pairwise_interaction_outputs = {}
+                pairwise_gate_weights = {}
+                for name, (first_name, second_name) in mechanism_pairs.items():
+                    interaction, weights = self.pairwise_interactions[name](
+                        pair_expand,
+                        event_expand,
+                        mechanism_expert_outputs[first_name],
+                        mechanism_expert_outputs[second_name],
+                    )
+                    pairwise_interaction_outputs[name] = interaction
+                    pairwise_gate_weights[name] = weights
+                    score_parts.append(interaction)
+            selected_for_score = torch.cat(score_parts, dim=-1)
+        else:
+            selected_for_score = (
+                selected if self.use_substructure_evidence else selected[..., :0]
+            )
+            if self.use_kg_evidence:
+                selected_for_score = torch.cat(
+                    [selected_for_score, kg_selected], dim=-1
+                )
+            if self.use_pharmacophore_evidence:
+                selected_for_score = torch.cat(
+                    [selected_for_score, pharmacophore_selected],
+                    dim=-1,
+                )
 
         logits = self.scorer(pair_repr, event_tokens, selected_for_score)
 
@@ -1078,4 +1261,7 @@ class ReverseAttentionCandidateMatcher(nn.Module):
             ),
             "pharmacophore_gate": pharmacophore_gate,
             "evidence_gate": evidence_gate,
+            "mechanism_expert_outputs": mechanism_expert_outputs,
+            "pairwise_interaction_outputs": pairwise_interaction_outputs,
+            "pairwise_gate_weights": pairwise_gate_weights,
         }

@@ -7,6 +7,7 @@ import os.path as osp
 import copy
 from torch.optim import Adam, AdamW
 import torch
+import torch.nn.functional as F
 import time
 from .utils import softmax
 from tools.logging_ import get_root_logger
@@ -86,6 +87,35 @@ class EvidenceDiagnosticsAccumulator:
     def update(self, diagnostics):
         if not diagnostics:
             return
+        expert_outputs = diagnostics.get("mechanism_expert_outputs")
+        if expert_outputs is not None:
+            for pair_name, first_name, second_name in (
+                ("substructure_kg", "substructure", "kg"),
+                ("substructure_pharmacophore", "substructure", "pharmacophore"),
+                ("kg_pharmacophore", "kg", "pharmacophore"),
+            ):
+                similarity = F.cosine_similarity(
+                    expert_outputs[first_name].detach(),
+                    expert_outputs[second_name].detach(),
+                    dim=-1,
+                )
+                self._accumulate(f"expert_cosine_{pair_name}", similarity)
+        pairwise_gates = diagnostics.get("pairwise_gate_weights")
+        if pairwise_gates is not None:
+            for pair_name, weights in pairwise_gates.items():
+                if weights is None:
+                    continue
+                weights = weights.detach().float()
+                self._accumulate(
+                    f"pairwise_gate_{pair_name}_first", weights[..., 0]
+                )
+                self._accumulate(
+                    f"pairwise_gate_{pair_name}_second", weights[..., 1]
+                )
+                entropy = -(
+                    weights * weights.clamp_min(1e-12).log()
+                ).sum(dim=-1)
+                self._accumulate(f"pairwise_gate_{pair_name}_entropy", entropy)
         attention = diagnostics.get("pharmacophore_attention")
         if attention is not None:
             probability = attention.detach().float()

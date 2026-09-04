@@ -582,6 +582,49 @@ def main():
     )
     print("candidate-specific per-drug pharmacophore top-k smoke test ok")
 
+    for use_pairwise_interactions, use_pairwise_gates in (
+        (False, False),
+        (True, False),
+        (True, True),
+    ):
+        mechanism_model = ReverseAttentionCandidateMatcher(
+            pair_dim=pair_dim,
+            evidence_dim=evidence_dim,
+            event_dim=event_dim,
+            hidden_dim=hidden_dim,
+            use_kg_evidence=True,
+            kg_evidence_dim=evidence_dim,
+            use_pharmacophore_evidence=True,
+            pharmacophore_evidence_dim=evidence_dim,
+            use_mechanism_experts=True,
+            use_pairwise_interactions=use_pairwise_interactions,
+            use_pairwise_gates=use_pairwise_gates,
+        )
+        mechanism_outputs = mechanism_model(
+            pair_repr,
+            evidence_tokens,
+            event_tokens,
+            labels,
+            kg_evidence_tokens=kg_tokens,
+            kg_evidence_mask=kg_mask,
+            pharmacophore_evidence_tokens=pharmacophore_tokens,
+            pharmacophore_evidence_mask=pharmacophore_mask,
+        )
+        assert mechanism_outputs["logits"].shape == (batch_size, num_events)
+        assert set(mechanism_outputs["mechanism_expert_outputs"]) == {
+            "substructure",
+            "kg",
+            "pharmacophore",
+        }
+        if use_pairwise_interactions:
+            assert len(mechanism_outputs["pairwise_interaction_outputs"]) == 3
+        if use_pairwise_gates:
+            for weights in mechanism_outputs["pairwise_gate_weights"].values():
+                assert weights.shape == (batch_size, num_events, 2)
+                assert torch.allclose(weights, torch.full_like(weights, 0.5))
+        mechanism_outputs["loss"].backward()
+    print("mechanism expert and pairwise interaction smoke tests ok")
+
 
 if __name__ == "__main__":
     main()
