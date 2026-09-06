@@ -29,3 +29,18 @@ Validation: reverse-attention smoke suite including joint KG+N1 forward/backward
 and gradients through both encoders; pharmacophore encoder smoke; validation
 selection smoke; resolved S0/S1/S2 configs and v2 graph metadata checked.
 No combined accuracy result is available before training and evaluation finish.
+
+## tmux launcher
+
+Run `bash tools/start_kg_pharm_tmux.sh s0 GPU_ID` from this worktree, replacing
+GPU_ID with a free physical GPU index. Use s1/s2 for other splits.
+Add `--dry-run` to print the command without creating a session or running training.
+The pipeline explicitly activates conda environment `zeroddi`, trains with batch
+128, and evaluates `model_best_epoch100_seen42.pkl` selected by validation
+Macro-F1 (not necessarily epoch 100). Its `.metrics.json` records the best epoch.
+Attach using `tmux attach -t kg-pharm-s0-seed42`; detach with Ctrl-b then d.
+Logs persist in the split work directory as `pipeline.log`, plus main.py logs.
+The tmux session exits when the pipeline finishes or fails. Successful stages
+have completion markers: relaunching skips them; failed training restarts from
+scratch, while failed evaluation can be retried without retraining.
+No training was launched when adding this script.
