@@ -582,6 +582,96 @@ def main():
     )
     print("candidate-specific per-drug pharmacophore top-k smoke test ok")
 
+    num_nodes = 11
+    num_edges = 24
+    graph_mask = torch.ones(batch_size, num_nodes, dtype=torch.bool)
+    graph = {
+        "node_ids": torch.randint(1, 16, (batch_size, num_nodes)),
+        "node_types": torch.randint(1, 6, (batch_size, num_nodes)),
+        "distance_to_a": torch.randint(1, 6, (batch_size, num_nodes)),
+        "distance_to_b": torch.randint(1, 6, (batch_size, num_nodes)),
+        "node_mask": graph_mask,
+        "edge_index": torch.randint(0, num_nodes, (batch_size, 2, num_edges)),
+        "edge_relations": torch.randint(1, 10, (batch_size, num_edges)),
+        "edge_mask": torch.ones(batch_size, num_edges, dtype=torch.bool),
+    }
+    kg_graph_model = ReverseAttentionCandidateMatcher(
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_kg_evidence=True,
+        kg_evidence_dim=evidence_dim,
+        kg_hidden_dim=hidden_dim,
+        kg_feature_vocab_sizes={
+            "entity": 16,
+            "type": 6,
+            "relation": 10,
+            "distance": 6,
+        },
+        kg_graph_evidence=True,
+    )
+    kg_graph_outputs = kg_graph_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels=labels,
+        kg_evidence_tokens=graph,
+        kg_evidence_mask=graph_mask,
+    )
+    kg_graph_outputs["loss"].backward()
+    print("kg edge-aware GraphSAGE smoke test ok")
+    print("kg_graph_attention:", tuple(kg_graph_outputs["kg_attention"].shape))
+
+
+    combined_model = ReverseAttentionCandidateMatcher(
+        use_kg_evidence=True,
+        kg_graph_evidence=True,
+        kg_feature_vocab_sizes={"entity": 16, "type": 6, "relation": 10, "distance": 6},
+        pair_dim=pair_dim,
+        evidence_dim=evidence_dim,
+        event_dim=event_dim,
+        hidden_dim=hidden_dim,
+        use_pharmacophore_evidence=True,
+        pharmacophore_evidence_dim=evidence_dim,
+        pharmacophore_use_drug_nodes=True,
+    )
+    node_count = drug_a_mask.sum(dim=-1) + drug_b_mask.sum(dim=-1)
+    combined_outputs = combined_model(
+        pair_repr,
+        evidence_tokens,
+        event_tokens,
+        labels,
+        kg_evidence_tokens=graph,
+        kg_evidence_mask=graph_mask,
+        pharmacophore_valid_pair_count=node_count,
+        pharmacophore_drug_a_nodes=drug_a_nodes,
+        pharmacophore_drug_a_types=drug_a_types,
+        pharmacophore_drug_a_mask=drug_a_mask,
+        pharmacophore_drug_b_nodes=drug_b_nodes,
+        pharmacophore_drug_b_types=drug_b_types,
+        pharmacophore_drug_b_mask=drug_b_mask,
+    )
+    assert combined_outputs["pharmacophore_attention"].shape == (
+        batch_size,
+        num_events,
+        drug_a_nodes.size(1) + drug_b_nodes.size(1) + 1,
+    )
+    assert torch.allclose(
+        combined_outputs["pharmacophore_attention"].sum(dim=-1),
+        torch.ones(batch_size, num_events),
+        atol=1e-6,
+    )
+    assert torch.equal(
+        combined_outputs["pharmacophore_valid_pair_count"], node_count
+    )
+    combined_outputs["loss"].backward()
+    assert combined_model.pharmacophore_node_selector.node_encoder[0].weight.grad is not None
+    assert combined_model.pharmacophore_node_selector.type_embedding.weight.grad is not None
+    assert combined_model.kg_feature_encoder.gnn.relation.weight.grad is not None
+    assert torch.isfinite(combined_outputs["logits"]).all()
+    print("combined KG graph + N1 pharmacophore forward/backward smoke test ok")
+
 
 if __name__ == "__main__":
     main()
