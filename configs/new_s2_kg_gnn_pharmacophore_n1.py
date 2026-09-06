@@ -18,7 +18,7 @@ data = dict(
     gzsl_test=dict(kg_pair_file=kg_pair_file, kg_max_nodes=256, kg_max_edges=1024),
 )
 
-train_batch_size = 64
+train_batch_size = 128
 work_dir = './work_dirs/new_s2_kg_gnn_pharmacophore_n1'
 
 # Keep the final N1 node-attention architecture and bound CPU parallelism.

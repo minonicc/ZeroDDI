@@ -17,7 +17,7 @@ data = dict(
 )
 
 work_dir = './work_dirs/new_s0_kg_gnn_pharmacophore_n1'
-train_batch_size = 64
+train_batch_size = 128
 
 # Keep the final N1 node-attention architecture and bound CPU parallelism.
 cpu_threads = 8

@@ -14,10 +14,11 @@ is queried by each DDIE. Substructure, KG, and pharmacophore summaries are
 concatenated for the candidate scorer.
 
 Configs: `configs/new_s{0,1,2}_kg_gnn_pharmacophore_n1.py`.
-100 epochs, seed 42, batch 64, CPU threads 8; validation Macro-F1 checkpoint
-selection inherited from N1. Batch 64 follows the KG GNN baseline (original N1
-uses 128), so comparisons with historical N1 also include a batch-size change.
-For a controlled ablation, rerun N1 at batch 64 with the same split and seed.
+100 epochs, seed 42, batch 128, CPU threads 8; validation Macro-F1 checkpoint
+selection inherited from N1. Batch 128 matches the flat KG and final N1 configs.
+Historical KG GNN configs use batch 64, so comparisons against those runs also
+include a batch-size change. For a controlled ablation, rerun KG GNN at batch
+128 with the same split, seed, and other training settings.
 
 Run from this worktree: `bash tools/run_kg_pharm_pipeline.sh s0 1`.
 The pipeline trains, then evaluates the validation-selected checkpoint on the
